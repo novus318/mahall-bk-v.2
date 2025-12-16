@@ -17,8 +17,11 @@ app.get('/', (req, res) => {
 });
 
 // Import routes
-// import exampleRoutes from './routes/exampleRoutes.js';
-// app.use('/api/examples', exampleRoutes);
+import mahallRoutes from './routes/mahallRoutes.js';
+import authRoutes from './routes/authRoutes.js';
+
+app.use('/api/auth', authRoutes);
+app.use('/api', mahallRoutes);
 
 const PORT = process.env.PORT || 5000;
 
