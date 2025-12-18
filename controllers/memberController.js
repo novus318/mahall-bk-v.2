@@ -6,12 +6,46 @@ import House from '../models/House.js';
 // @access  Public
 const getMembers = async (req, res) => {
     try {
-        const members = await Member.find({})
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const search = req.query.search || "";
+        const skip = (page - 1) * limit;
+
+        const query = {};
+
+        if (req.query.family) query.family = req.query.family;
+        if (req.query.house) query.house = req.query.house;
+
+        if (search) {
+            const searchRegex = new RegExp(search, 'i');
+            query.$or = [
+                { name: searchRegex },
+                { customId: searchRegex },
+                { mobile: searchRegex }
+            ];
+        }
+
+        const members = await Member.find(query)
             .populate('house', 'name customId')
-            .populate('family', 'name customId');
-        res.json(members);
+            .populate('family', 'name customId')
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit);
+
+        const total = await Member.countDocuments(query);
+
+        res.json({
+            status: true,
+            message: "Members fetched",
+            data: {
+                members,
+                page,
+                pages: Math.ceil(total / limit),
+                total
+            }
+        });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        res.status(500).json({ status: false, message: error.message });
     }
 };
 
@@ -42,7 +76,7 @@ const createMember = async (req, res) => {
         const house = await House.findById(houseId).populate('family');
 
         if (!house) {
-            return res.status(404).json({ message: 'House not found' });
+            return res.status(404).json({ status: false, message: 'House not found' });
         }
 
         // Logic to generate Member ID: CYS00101 or IND00101
@@ -91,10 +125,54 @@ const createMember = async (req, res) => {
 
         await member.save();
 
-        res.status(201).json(member);
+        res.status(201).json({ status: true, message: "Member created", data: member });
     } catch (error) {
-        res.status(400).json({ message: error.message });
+        res.status(400).json({ status: false, message: error.message });
     }
 };
 
-export { getMembers, createMember };
+// @desc    Update a member
+// @route   PUT /api/members/:id
+// @access  Private (Admin/Staff)
+const updateMember = async (req, res) => {
+    try {
+        const member = await Member.findById(req.params.id);
+
+        if (member) {
+            // Update fields from request body if they exist
+            Object.keys(req.body).forEach(key => {
+                // Prevent updating customId or family/house relations directly here if need be (for now allowing all updates)
+                if (key !== 'customId' && key !== '_id') {
+                    member[key] = req.body[key];
+                }
+            });
+
+            const updatedMember = await member.save();
+            res.json({ status: true, message: "Member updated", data: updatedMember });
+        } else {
+            res.status(404).json({ status: false, message: 'Member not found' });
+        }
+    } catch (error) {
+        res.status(400).json({ status: false, message: error.message });
+    }
+};
+
+// @desc    Delete a member
+// @route   DELETE /api/members/:id
+// @access  Private (Admin)
+const deleteMember = async (req, res) => {
+    try {
+        const member = await Member.findById(req.params.id);
+
+        if (member) {
+            await member.deleteOne();
+            res.json({ status: true, message: 'Member removed' });
+        } else {
+            res.status(404).json({ status: false, message: 'Member not found' });
+        }
+    } catch (error) {
+        res.status(400).json({ status: false, message: error.message });
+    }
+};
+
+export { getMembers, createMember, updateMember, deleteMember };

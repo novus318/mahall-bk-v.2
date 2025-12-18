@@ -1,15 +1,67 @@
 import House from '../models/House.js';
 import Family from '../models/Family.js';
+import xlsx from 'xlsx';
 
+// @desc    Get all houses
+// @route   GET /api/houses
+// @access  Public
 // @desc    Get all houses
 // @route   GET /api/houses
 // @access  Public
 const getHouses = async (req, res) => {
     try {
-        const houses = await House.find({}).populate('family', 'name customId');
-        res.json(houses);
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const search = req.query.search || '';
+
+        const query = {};
+        if (req.query.family) {
+            query.family = req.query.family;
+        }
+
+        if (search) {
+            query.$or = [
+                { name: { $regex: search, $options: 'i' } },
+                { customId: { $regex: search, $options: 'i' } },
+                { address: { $regex: search, $options: 'i' } }
+            ];
+        }
+
+        const count = await House.countDocuments(query);
+        const houses = await House.find(query)
+            .populate('family', 'name customId')
+            .limit(limit)
+            .skip(limit * (page - 1))
+            .sort({ createdAt: -1 });
+
+        res.json({
+            status: true,
+            message: "Houses fetched successfully",
+            data: {
+                houses,
+                page,
+                pages: Math.ceil(count / limit),
+                total: count
+            }
+        });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+// @desc    Get single house
+// @route   GET /api/houses/:id
+// @access  Public
+const getHouseById = async (req, res) => {
+    try {
+        const house = await House.findById(req.params.id).populate('family', 'name customId');
+        if (house) {
+            res.json({ status: true, message: "House details", data: house });
+        } else {
+            res.status(404).json({ status: false, message: 'House not found' });
+        }
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
     }
 };
 
@@ -26,7 +78,7 @@ const createHouse = async (req, res) => {
         if (familyId) {
             const family = await Family.findById(familyId);
             if (!family) {
-                return res.status(404).json({ message: 'Family not found' });
+                return res.status(404).json({ status: false, message: 'Family not found' });
             }
             familyPrefix = family.customId;
             searchQuery.family = familyId;
@@ -65,10 +117,194 @@ const createHouse = async (req, res) => {
 
         const house = await House.create(houseData);
 
-        res.status(201).json(house);
+        res.status(201).json({ status: true, message: "House created", data: house });
     } catch (error) {
-        res.status(400).json({ message: error.message });
+        res.status(400).json({ status: false, message: error.message });
     }
 };
 
-export { getHouses, createHouse };
+// @desc    Update a house
+// @route   PUT /api/houses/:id
+// @access  Private (Admin/Staff)
+const updateHouse = async (req, res) => {
+    try {
+        const { name, address } = req.body;
+        const house = await House.findById(req.params.id);
+
+        if (house) {
+            house.name = name !== undefined ? name : house.name;
+            house.address = address !== undefined ? address : house.address;
+            if (req.body.head !== undefined) {
+                house.head = req.body.head;
+            }
+
+            const updatedHouse = await house.save();
+            res.json({ status: true, message: "House updated", data: updatedHouse });
+        } else {
+            res.status(404).json({ status: false, message: 'House not found' });
+        }
+    } catch (error) {
+        res.status(400).json({ status: false, message: error.message });
+    }
+};
+
+// @desc    Delete a house
+// @route   DELETE /api/houses/:id
+// @access  Private (Admin)
+const deleteHouse = async (req, res) => {
+    try {
+        const house = await House.findById(req.params.id);
+
+        if (house) {
+            await house.deleteOne();
+            res.json({ status: true, message: 'House removed' });
+        } else {
+            res.status(404).json({ status: false, message: 'House not found' });
+        }
+    } catch (error) {
+        res.status(400).json({ status: false, message: error.message });
+    }
+};
+
+// @desc    Bulk import houses from Excel
+// @route   POST /api/houses/import
+// @access  Private (Admin/Staff)
+
+const bulkImportHouses = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ status: false, message: 'Please upload an Excel file' });
+        }
+
+        const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const data = xlsx.utils.sheet_to_json(sheet);
+
+        if (!data || data.length === 0) {
+            return res.status(400).json({ status: false, message: 'Excel file is empty' });
+        }
+
+        let successCount = 0;
+        let errorCount = 0;
+        const errors = [];
+
+        // 1. Group rows by Family Custom ID (or 'IND' if undefined)
+        // This is necessary to generate sequential IDs correctly for each family
+        const groups = {}; // { 'CYS': [row1, row2], 'IND': [row3] }
+
+        for (const row of data) {
+            const familyKey = row.familyCustomId ? String(row.familyCustomId).trim().toUpperCase().padStart(3, '0') : 'IND';
+            if (!groups[familyKey]) {
+                groups[familyKey] = [];
+            }
+            groups[familyKey].push(row);
+        }
+
+        // Pre-fetch all families map for validation
+        const families = await Family.find({});
+        const familyMap = new Map(); // customId -> _id
+        families.forEach(f => familyMap.set(f.customId, f._id));
+
+        // 2. Process each group
+        for (const [key, rows] of Object.entries(groups)) {
+            let familyId = null;
+            let familyPrefix = 'IND';
+
+            // Validate Family
+            if (key !== 'IND') {
+                if (familyMap.has(key)) {
+                    familyId = familyMap.get(key);
+                    familyPrefix = key;
+                } else {
+                    // Entire group fails if family doesn't exist
+                    // Or we could skip just these rows. Let's skip and log errors.
+                    for (const r of rows) {
+                        errorCount++;
+                        errors.push(`Skipped House ${r.block}-${r.houseNumber}: Family '${key}' not found`);
+                    }
+                    continue;
+                }
+            }
+
+            // Find current last sequence for this family
+            const query = (key === 'IND') ? { family: { $exists: false } } : { family: familyId };
+            // Sort by customId desc is reliable because format is fixed length (AAA000)
+            const lastHouse = await House.findOne(query).sort({ customId: -1 });
+
+            let nextSeq = 1;
+            if (lastHouse) {
+                const lastSeqStr = lastHouse.customId.substring(3);
+                const lastSeq = parseInt(lastSeqStr, 10);
+                if (!isNaN(lastSeq)) {
+                    nextSeq = lastSeq + 1;
+                }
+            }
+
+            // Process rows in this group
+            for (const row of rows) {
+                let name = row.name ? String(row.name).trim() : null;
+                let customId = row.customId ? String(row.customId).trim() : null;
+                const address = row.address ? String(row.address).trim() : '';
+
+                // Fallback to Block/Number generation if name/customId not provided
+                if (!name && row.block && row.houseNumber) {
+                    name = `${row.block}-${row.houseNumber}`;
+                }
+
+                // Validation
+                if (!name) {
+                    errorCount++;
+                    errors.push(`Skipped row: Missing 'name' (or block/houseNumber)`);
+                    continue;
+                }
+
+                // Auto-generate Custom ID if not provided
+                if (!customId) {
+                    const seqStr = nextSeq.toString().padStart(3, '0');
+                    customId = `${familyPrefix}${seqStr}`;
+                    nextSeq++;
+                }
+
+                // Optional: Check if customId format is valid (matches family prefix) if manually provided? 
+                // For now, let's trust the input or schema validation.
+
+                try {
+                    await House.create({
+                        name,
+                        customId,
+                        address,
+                        family: familyId
+                    });
+                    successCount++;
+                    // Only increment sequence if we GENERATED the ID. 
+                    // If user provided ID, we shouldn't necessarily increment nextSeq unless we want to keep them in sync, 
+                    // but mixing manual/auto is complex. Let's assume if they provide ID, they manage the sequence.
+                    // But if we generated it, we incremented it above.
+                } catch (err) {
+                    errorCount++;
+                    if (err.code === 11000) {
+                        errors.push(`Skipped House ${name}: Duplicate Key (${customId})`);
+                    } else {
+                        errors.push(`Skipped House ${name}: ${err.message}`);
+                    }
+                }
+            }
+        }
+
+        res.status(200).json({
+            status: true,
+            message: `Import processed. Added: ${successCount}, Skipped: ${errorCount}`,
+            data: {
+                successCount,
+                errorCount,
+                errors
+            }
+        });
+
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+export { getHouses, getHouseById, createHouse, updateHouse, deleteHouse, bulkImportHouses };

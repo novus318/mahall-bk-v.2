@@ -18,14 +18,18 @@ const authUser = async (req, res) => {
         await user.save();
 
         res.json({
-            _id: user._id,
-            username: user.username,
-            role: user.role,
-            accessToken,
-            refreshToken
+            status: true,
+            message: "Login successful",
+            data: {
+                _id: user._id,
+                username: user.username,
+                role: user.role,
+                accessToken,
+                refreshToken
+            }
         });
     } else {
-        res.status(401).json({ message: 'Invalid username or password' });
+        res.status(401).json({ status: false, message: 'Invalid username or password' });
     }
 };
 
@@ -36,7 +40,7 @@ const refreshAccessToken = async (req, res) => {
     const { refreshToken } = req.body;
 
     if (!refreshToken) {
-        return res.status(401).json({ message: 'Not authorized, no token' });
+        return res.status(401).json({ status: false, message: 'Not authorized, no token' });
     }
 
     try {
@@ -44,17 +48,18 @@ const refreshAccessToken = async (req, res) => {
         const user = await User.findById(decoded.id);
 
         if (!user || user.refreshToken !== refreshToken) {
-            return res.status(401).json({ message: 'Invalid refresh token' });
+            return res.status(401).json({ status: false, message: 'Invalid refresh token' });
         }
 
         const accessToken = generateAccessToken(user._id);
-        // Rotate refresh token (optional security measure, keeping same for now for simplicity unless requested)
-        // For strict security, we should issue a new refresh token too.
-        // Let's stick to simple access token refresh for now.
 
-        res.json({ accessToken });
+        res.json({
+            status: true,
+            message: "Token refreshed",
+            data: { accessToken }
+        });
     } catch (error) {
-        res.status(401).json({ message: 'Not authorized, token failed' });
+        res.status(401).json({ status: false, message: 'Not authorized, token failed' });
     }
 };
 
