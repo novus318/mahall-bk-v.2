@@ -24,11 +24,13 @@ import mahallRoutes from './routes/mahallRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import userRoutes from './routes/userRoutes.js';
 import settingsRoutes from './routes/settingsRoutes.js';
+import inventoryRoutes from './routes/inventoryRoutes.js';
 
 app.use('/api/auth', authRoutes);
 app.use('/api', mahallRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/inventory', inventoryRoutes);
 
 const PORT = process.env.PORT || 5000;
 
