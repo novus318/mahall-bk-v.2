@@ -76,6 +76,10 @@ const memberSchema = mongoose.Schema({
     children: [{
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Member'
+    }],
+    siblings: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Member'
     }]
 }, {
     timestamps: true
