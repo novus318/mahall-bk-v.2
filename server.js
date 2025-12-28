@@ -25,12 +25,16 @@ import authRoutes from './routes/authRoutes.js';
 import userRoutes from './routes/userRoutes.js';
 import settingsRoutes from './routes/settingsRoutes.js';
 import inventoryRoutes from './routes/inventoryRoutes.js';
+import buildingRoutes from './routes/buildingRoutes.js';
+import contractRoutes from './routes/contractRoutes.js';
 
 app.use('/api/auth', authRoutes);
 app.use('/api', mahallRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/inventory', inventoryRoutes);
+app.use('/api/buildings', buildingRoutes);
+app.use('/api/contracts', contractRoutes);
 
 const PORT = process.env.PORT || 5000;
 
