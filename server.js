@@ -27,6 +27,7 @@ import settingsRoutes from './routes/settingsRoutes.js';
 import inventoryRoutes from './routes/inventoryRoutes.js';
 import buildingRoutes from './routes/buildingRoutes.js';
 import contractRoutes from './routes/contractRoutes.js';
+import staffRoutes from './routes/staffRoutes.js';
 
 app.use('/api/auth', authRoutes);
 app.use('/api', mahallRoutes);
@@ -35,6 +36,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/buildings', buildingRoutes);
 app.use('/api/contracts', contractRoutes);
+app.use('/api/staff', staffRoutes);
 
 const PORT = process.env.PORT || 5000;
 
