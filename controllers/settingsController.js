@@ -36,4 +36,37 @@ const updateAlertContacts = async (req, res) => {
     }
 };
 
-export { getAlertContacts, updateAlertContacts };
+// @desc    Get Payment Settings
+// @route   GET /api/settings/payments
+// @access  Private/Admin
+const getPaymentSettings = async (req, res) => {
+    try {
+        let settings = await SystemSettings.findOne();
+        if (!settings) settings = await SystemSettings.create({});
+        res.json({ status: true, data: settings.paymentSettings });
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+// @desc    Update Payment Settings
+// @route   PUT /api/settings/payments
+// @access  Private/Admin
+const updatePaymentSettings = async (req, res) => {
+    try {
+        const { receiptPrefix, receiptCurrentNumber } = req.body;
+
+        let settings = await SystemSettings.findOne();
+        if (!settings) settings = new SystemSettings({});
+
+        if (receiptPrefix !== undefined) settings.paymentSettings.receiptPrefix = receiptPrefix;
+        if (receiptCurrentNumber !== undefined) settings.paymentSettings.receiptCurrentNumber = receiptCurrentNumber;
+
+        await settings.save();
+        res.json({ status: true, message: 'Payment settings updated', data: settings.paymentSettings });
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+export { getAlertContacts, updateAlertContacts, getPaymentSettings, updatePaymentSettings };

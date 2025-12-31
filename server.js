@@ -29,6 +29,7 @@ import buildingRoutes from './routes/buildingRoutes.js';
 import contractRoutes from './routes/contractRoutes.js';
 import staffRoutes from './routes/staffRoutes.js';
 import accountRoutes from './routes/accountRoutes.js';
+import paymentRoutes from './routes/paymentRoutes.js';
 
 app.use('/api/auth', authRoutes);
 app.use('/api', mahallRoutes);
@@ -39,6 +40,7 @@ app.use('/api/buildings', buildingRoutes);
 app.use('/api/contracts', contractRoutes);
 app.use('/api/staff', staffRoutes);
 app.use('/api/accounts', accountRoutes);
+app.use('/api/payments', paymentRoutes);
 
 const PORT = process.env.PORT || 5000;
 

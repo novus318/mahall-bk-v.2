@@ -4,7 +4,12 @@ const systemSettingsSchema = mongoose.Schema({
     alertContacts: [{
         name: { type: String, required: true },
         number: { type: String, required: true }
-    }]
+    }],
+    paymentSettings: {
+        receiptPrefix: { type: String, default: 'PA-' },
+        receiptCurrentNumber: { type: Number, default: 1 }, // The NEXT number to be used
+        receiptSequenceLimit: { type: Number, default: 999 }
+    }
 }, {
     timestamps: true
 });

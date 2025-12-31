@@ -10,6 +10,10 @@ const accountTransactionSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Account' // For transfers
     },
+    payment: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Payment' // For expense tracking
+    },
     type: {
         type: String,
         enum: ['OPENING_BALANCE', 'TRANSFER_IN', 'TRANSFER_OUT', 'INCOME', 'EXPENSE'],

@@ -5,25 +5,44 @@ const { Schema, model } = mongoose;
 const paymentSchema = new Schema({
     contract: {
         type: Schema.Types.ObjectId,
-        ref: 'Contract',
-        required: true
+        ref: 'Contract'
+        // required: true -> Removed to allow general expenses
     },
+    // Common
     amount: {
         type: Number,
         required: true
     },
     type: {
         type: String,
-        enum: ['RENT', 'DEPOSIT', 'FINE', 'REFUND', 'OTHER'],
+        enum: ['RENT', 'DEPOSIT', 'FINE', 'REFUND', 'OTHER', 'EXPENSE'],
         default: 'RENT'
     },
-    paymentDate: {
+    date: { // Unified date field (Expenses use this)
         type: Date,
         default: Date.now
     },
-    notes: {
-        type: String
-    }
+    paymentDate: { // Legacy/Contract date field (Keep for backward compatibility)
+        type: Date,
+        default: Date.now
+    },
+    description: { type: String }, // Notes/Description
+    notes: { type: String }, // Legacy notes
+
+    // Expense Specific
+    receiptNo: {
+        type: String,
+        sparse: true, // Allow multiple nulls
+        unique: true
+    },
+    account: { type: Schema.Types.ObjectId, ref: 'Account' },
+    category: { type: Schema.Types.ObjectId, ref: 'PaymentCategory' },
+    payee: { type: String },
+    items: [{
+        description: { type: String },
+        amount: { type: Number }
+    }],
+    createdBy: { type: Schema.Types.ObjectId, ref: 'User' }
 }, {
     timestamps: true
 });
