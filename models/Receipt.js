@@ -26,6 +26,7 @@ const receiptSchema = new Schema({
     account: { type: Schema.Types.ObjectId, ref: 'Account', required: true },
     category: { type: Schema.Types.ObjectId, ref: 'ReceiptCategory' },
     payer: { type: String, required: true }, // "Received From"
+    payerContact: { type: String }, // Optional Contact Number
     items: [{
         description: { type: String },
         amount: { type: Number }

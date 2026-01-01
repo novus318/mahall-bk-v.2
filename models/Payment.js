@@ -38,6 +38,7 @@ const paymentSchema = new Schema({
     account: { type: Schema.Types.ObjectId, ref: 'Account' },
     category: { type: Schema.Types.ObjectId, ref: 'PaymentCategory' },
     payee: { type: String },
+    payeeContact: { type: String }, // Optional Contact Number
     items: [{
         description: { type: String },
         amount: { type: Number }

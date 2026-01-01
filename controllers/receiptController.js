@@ -88,7 +88,7 @@ export const getReceiptById = async (req, res) => {
 
 export const createReceipt = async (req, res) => {
     try {
-        const { date, accountId, categoryId, payer, items, description } = req.body;
+        const { date, accountId, categoryId, payer, payerContact, items, description } = req.body; // Added payerContact
 
         // 1. Calculate Total
         const totalAmount = items.reduce((sum, item) => sum + Number(item.amount), 0);
@@ -158,6 +158,7 @@ export const createReceipt = async (req, res) => {
             account: accountId,
             category: categoryId,
             payer,
+            payerContact, // Added
             items,
             amount: totalAmount,
             description,
@@ -191,7 +192,7 @@ export const createReceipt = async (req, res) => {
 export const updateReceipt = async (req, res) => {
     try {
         const { id } = req.params;
-        const { date, accountId, categoryId, payer, items, description } = req.body;
+        const { date, accountId, categoryId, payer, payerContact, items, description } = req.body; // Added payerContact
 
         const receipt = await Receipt.findById(id);
         if (!receipt) return res.status(404).json({ status: false, message: 'Receipt not found' });
@@ -266,6 +267,7 @@ export const updateReceipt = async (req, res) => {
         receipt.account = accountId;
         receipt.category = categoryId;
         receipt.payer = payer;
+        receipt.payerContact = payerContact; // Added
         receipt.items = items;
         receipt.amount = newTotalAmount;
         receipt.description = description;

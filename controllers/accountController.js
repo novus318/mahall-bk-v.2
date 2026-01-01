@@ -173,7 +173,6 @@ export const transferFunds = async (req, res) => {
 // @access  Private
 export const getAccountTransactions = async (req, res) => {
     try {
-        console.log('getAccountTransactions params:', req.params); // DEBUG
 
         if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
             return res.status(400).json({ status: false, message: 'Invalid Account ID' });
@@ -196,7 +195,6 @@ export const getAccountTransactions = async (req, res) => {
 // @access  Private
 export const getAllTransactions = async (req, res) => {
     try {
-        console.log('getAllTransactions query:', req.query); // DEBUG
         const { page = 1, limit = 20, type, accountId, search, startDate, endDate } = req.query;
 
         const query = {};

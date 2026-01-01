@@ -87,7 +87,7 @@ export const getPaymentById = async (req, res) => {
 
 export const createPayment = async (req, res) => {
     try {
-        const { date, accountId, categoryId, payee, items, description } = req.body;
+        const { date, accountId, categoryId, payee, payeeContact, items, description } = req.body; // Added payeeContact
 
         // 1. Calculate Total
         const totalAmount = items.reduce((sum, item) => sum + Number(item.amount), 0);
@@ -173,6 +173,7 @@ export const createPayment = async (req, res) => {
             account: accountId,
             category: categoryId,
             payee,
+            payeeContact, // Added
             items,
             amount: totalAmount, // Map totalAmount to amount schema field
             totalAmount, // Keep if desired, but schema uses 'amount'
@@ -209,7 +210,7 @@ export const createPayment = async (req, res) => {
 export const updatePayment = async (req, res) => {
     try {
         const { id } = req.params;
-        const { date, accountId, categoryId, payee, items, description } = req.body;
+        const { date, accountId, categoryId, payee, payeeContact, items, description } = req.body; // Added payeeContact
 
         const payment = await Payment.findById(id);
         if (!payment) return res.status(404).json({ status: false, message: 'Payment not found' });
@@ -291,6 +292,7 @@ export const updatePayment = async (req, res) => {
         payment.account = accountId;
         payment.category = categoryId;
         payment.payee = payee;
+        payment.payeeContact = payeeContact; // Added
         payment.items = items;
         payment.amount = newTotalAmount;
         payment.description = description;
