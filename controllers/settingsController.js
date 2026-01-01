@@ -43,7 +43,13 @@ const getPaymentSettings = async (req, res) => {
     try {
         let settings = await SystemSettings.findOne();
         if (!settings) settings = await SystemSettings.create({});
-        res.json({ status: true, data: settings.paymentSettings });
+        res.json({
+            status: true,
+            data: {
+                paymentSettings: settings.paymentSettings,
+                incomeSettings: settings.incomeSettings
+            }
+        });
     } catch (error) {
         res.status(500).json({ status: false, message: error.message });
     }
@@ -54,13 +60,21 @@ const getPaymentSettings = async (req, res) => {
 // @access  Private/Admin
 const updatePaymentSettings = async (req, res) => {
     try {
-        const { receiptPrefix, receiptCurrentNumber } = req.body;
+        const { paymentSettings, incomeSettings } = req.body;
 
         let settings = await SystemSettings.findOne();
         if (!settings) settings = new SystemSettings({});
 
-        if (receiptPrefix !== undefined) settings.paymentSettings.receiptPrefix = receiptPrefix;
-        if (receiptCurrentNumber !== undefined) settings.paymentSettings.receiptCurrentNumber = receiptCurrentNumber;
+        if (paymentSettings) {
+            if (paymentSettings.receiptPrefix !== undefined) settings.paymentSettings.receiptPrefix = paymentSettings.receiptPrefix;
+            if (paymentSettings.receiptCurrentNumber !== undefined) settings.paymentSettings.receiptCurrentNumber = paymentSettings.receiptCurrentNumber;
+        }
+
+        if (incomeSettings) {
+            if (!settings.incomeSettings) settings.incomeSettings = {};
+            if (incomeSettings.receiptPrefix !== undefined) settings.incomeSettings.receiptPrefix = incomeSettings.receiptPrefix;
+            if (incomeSettings.receiptCurrentNumber !== undefined) settings.incomeSettings.receiptCurrentNumber = incomeSettings.receiptCurrentNumber;
+        }
 
         await settings.save();
         res.json({ status: true, message: 'Payment settings updated', data: settings.paymentSettings });

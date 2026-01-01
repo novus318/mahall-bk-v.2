@@ -1,6 +1,7 @@
 import Account from '../models/Account.js';
 import AccountTransaction from '../models/AccountTransaction.js';
 import XLSX from 'xlsx';
+import mongoose from 'mongoose';
 
 // @desc    Create new account
 // @route   POST /api/accounts
@@ -172,9 +173,16 @@ export const transferFunds = async (req, res) => {
 // @access  Private
 export const getAccountTransactions = async (req, res) => {
     try {
+        console.log('getAccountTransactions params:', req.params); // DEBUG
+
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ status: false, message: 'Invalid Account ID' });
+        }
+
         const transactions = await AccountTransaction.find({ account: req.params.id })
             .populate('relatedAccount', 'name')
             .populate('payment', 'receiptNo _id')
+            .populate('receipt', 'receiptNo _id') // Added receipt population
             .sort({ date: -1, createdAt: -1 });
 
         res.json({ status: true, data: transactions });
@@ -188,13 +196,15 @@ export const getAccountTransactions = async (req, res) => {
 // @access  Private
 export const getAllTransactions = async (req, res) => {
     try {
+        console.log('getAllTransactions query:', req.query); // DEBUG
         const { page = 1, limit = 20, type, accountId, search, startDate, endDate } = req.query;
 
         const query = {};
 
-        // Filters
         if (type && type !== 'ALL') query.type = type;
-        if (accountId && accountId !== 'ALL') query.account = accountId;
+        if (accountId && accountId !== 'ALL' && mongoose.Types.ObjectId.isValid(accountId)) {
+            query.account = accountId;
+        }
 
         if (startDate || endDate) {
             query.date = {};
@@ -211,6 +221,7 @@ export const getAllTransactions = async (req, res) => {
             .populate('account', 'name type')
             .populate('relatedAccount', 'name')
             .populate('payment', 'receiptNo _id')
+            .populate('receipt', 'receiptNo _id')
             .sort({ date: -1, createdAt: -1 })
             .limit(limit * 1)
             .skip((page - 1) * limit);
@@ -238,7 +249,9 @@ export const exportTransactions = async (req, res) => {
 
         // Filters
         if (type && type !== 'ALL') query.type = type;
-        if (accountId && accountId !== 'ALL') query.account = accountId;
+        if (accountId && accountId !== 'ALL' && mongoose.Types.ObjectId.isValid(accountId)) {
+            query.account = accountId;
+        }
 
         if (startDate || endDate) {
             query.date = {};

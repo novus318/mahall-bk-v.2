@@ -30,17 +30,19 @@ import contractRoutes from './routes/contractRoutes.js';
 import staffRoutes from './routes/staffRoutes.js';
 import accountRoutes from './routes/accountRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
+import receiptRoutes from './routes/receiptRoutes.js';
 
 app.use('/api/auth', authRoutes);
 app.use('/api', mahallRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/inventory', inventoryRoutes);
-app.use('/api/buildings', buildingRoutes);
-app.use('/api/contracts', contractRoutes);
 app.use('/api/staff', staffRoutes);
 app.use('/api/accounts', accountRoutes);
+app.use('/api/buildings', buildingRoutes);
+app.use('/api/contracts', contractRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/receipts', receiptRoutes);
 
 const PORT = process.env.PORT || 5000;
 

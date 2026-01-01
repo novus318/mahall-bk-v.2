@@ -7,7 +7,12 @@ const systemSettingsSchema = mongoose.Schema({
     }],
     paymentSettings: {
         receiptPrefix: { type: String, default: 'PA-' },
-        receiptCurrentNumber: { type: Number, default: 1 }, // The NEXT number to be used
+        receiptCurrentNumber: { type: Number, default: 1 },
+        receiptSequenceLimit: { type: Number, default: 999 }
+    },
+    incomeSettings: {
+        receiptPrefix: { type: String, default: 'RC-' },
+        receiptCurrentNumber: { type: Number, default: 1 },
         receiptSequenceLimit: { type: Number, default: 999 }
     }
 }, {

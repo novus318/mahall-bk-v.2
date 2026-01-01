@@ -12,7 +12,11 @@ const accountTransactionSchema = new mongoose.Schema({
     },
     payment: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'Payment' // For expense tracking
+        ref: 'Payment'
+    },
+    receipt: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Receipt'
     },
     type: {
         type: String,
