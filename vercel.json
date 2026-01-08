@@ -1,10 +1,7 @@
 {
     "version": 2,
-    "builds": [
-        {
-            "src": "./server.js",
-            "use": "@vercel/node"
-        }
+    "regions": [
+        "iad1"
     ],
     "functions": {
         "server.js": {
