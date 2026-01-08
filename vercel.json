@@ -9,9 +9,6 @@
     "functions": {
         "server.js": {
             "runtime": "nodejs24.x",
-            "regions": [
-                "iad1"
-            ],
             "maxDuration": 300
         }
     },
