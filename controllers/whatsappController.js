@@ -4,6 +4,8 @@ import Member from '../models/Member.js';
 import Contract from '../models/Contract.js'; // For Tenants
 import Staff from '../models/Staff.js';
 import axios from 'axios';
+import dotenv from 'dotenv';
+dotenv.config();
 
 // Environment Variables
 const TOKEN = process.env.WHATSAPP_TOKEN;
