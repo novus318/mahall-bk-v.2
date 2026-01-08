@@ -5,7 +5,7 @@
     ],
     "functions": {
         "server.js": {
-            "runtime": "nodejs24.x",
+            "runtime": "nodejs20.x",
             "maxDuration": 300
         }
     },
