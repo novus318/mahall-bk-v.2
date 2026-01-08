@@ -31,6 +31,7 @@ import staffRoutes from './routes/staffRoutes.js';
 import accountRoutes from './routes/accountRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
 import receiptRoutes from './routes/receiptRoutes.js';
+import whatsappRoutes from './routes/whatsappRoutes.js';
 
 app.use('/api/auth', authRoutes);
 app.use('/api', mahallRoutes);
@@ -43,6 +44,7 @@ app.use('/api/buildings', buildingRoutes);
 app.use('/api/contracts', contractRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/receipts', receiptRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
 
 const PORT = process.env.PORT || 5000;
 
