@@ -82,6 +82,7 @@ export const verifyWebhook = (req, res) => {
 export const receiveWebhook = async (req, res) => {
     try {
         const body = req.body;
+        console.log('Incoming Webhook Body:', JSON.stringify(body, null, 2));
 
         // Check if this is an event from WhatsApp Cloud API
         if (body.object) {
@@ -100,7 +101,6 @@ export const receiveWebhook = async (req, res) => {
                 const msgId = message.id;
                 const msgType = message.type;
                 let msgBody = '';
-                let mediaUrl = null;
                 let mediaId = null;
 
                 // Handle Message Types
@@ -109,9 +109,6 @@ export const receiveWebhook = async (req, res) => {
                 } else if (msgType === 'image') {
                     msgBody = message.image.caption || 'Image';
                     mediaId = message.image.id;
-                    // We need to fetch media URL separately usually, but for now just storing ID
-                    // Or if we want to download it immediately. 
-                    // Storing ID is safer for speed.
                 } else if (msgType === 'document') {
                     msgBody = message.document.caption || message.document.filename || 'Document';
                     mediaId = message.document.id;
@@ -132,7 +129,6 @@ export const receiveWebhook = async (req, res) => {
                     msgBody = 'Contact: ' + contacts.map(c => `${c.name.formatted_name} (${c.phones[0].phone})`).join(', ');
                 } else if (msgType === 'reaction') {
                     msgBody = `Reacted ${message.reaction.emoji} to message ${message.reaction.message_id}`;
-                    // In a real app, we might update the referenced message's reaction field
                 } else {
                     msgBody = `[${msgType.toUpperCase()}]`;
                 }
@@ -141,7 +137,6 @@ export const receiveWebhook = async (req, res) => {
                 let contact = await WhatsAppContact.findOne({ phoneNumber: from });
 
                 if (!contact) {
-                    // New Contact - Try logic to match Entity
                     const entity = await findEntityByPhone(from);
 
                     contact = new WhatsAppContact({
@@ -153,12 +148,9 @@ export const receiveWebhook = async (req, res) => {
                         linkedEntityModel: entity ? entity.model : undefined,
                     });
                 } else {
-                    // Update Profile Name just in case
                     if (contactInfo && contactInfo.profile.name) {
                         contact.profileName = contactInfo.profile.name;
                     }
-                    // Optional: Re-check entity linking if UNKNOWN? 
-                    // Only re-check if currently unknown
                     if (contact.type === 'UNKNOWN') {
                         const entity = await findEntityByPhone(from);
                         if (entity) {
@@ -177,7 +169,6 @@ export const receiveWebhook = async (req, res) => {
                 await contact.save();
 
                 // 2.2 Save Message
-                // Check if message already exists (deduplication)
                 const existingMsg = await WhatsAppMessage.findOne({ whatsappMessageId: msgId });
                 if (!existingMsg) {
                     await WhatsAppMessage.create({
@@ -186,7 +177,7 @@ export const receiveWebhook = async (req, res) => {
                         direction: 'INBOUND',
                         type: msgType,
                         body: msgBody,
-                        mediaId: mediaId, // Retrieve URL later if needed
+                        mediaId: mediaId,
                         status: 'received',
                         timestamp: new Date(message.timestamp * 1000)
                     });
@@ -194,8 +185,6 @@ export const receiveWebhook = async (req, res) => {
             } else if (
                 body.entry && body.entry[0].changes && body.entry[0].changes[0].value.statuses
             ) {
-                // Handle Status Updates (Sent, Delivered, Read)
-                // We'll skip complex logic for now, just iterate
                 const statuses = body.entry[0].changes[0].value.statuses;
                 for (const status of statuses) {
                     await WhatsAppMessage.findOneAndUpdate(
@@ -204,7 +193,7 @@ export const receiveWebhook = async (req, res) => {
                     );
                 }
             }
-            res.status(200).json({ status: 'success', received: body });
+            res.sendStatus(200);
         } else {
             res.sendStatus(404);
         }
