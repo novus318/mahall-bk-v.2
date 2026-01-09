@@ -104,6 +104,7 @@ export const receiveWebhook = async (req, res) => {
                 let mediaId = null;
                 let mimeType = null;
                 let isAnimated = false;
+                let isVoice = false;
 
                 // Handle Message Types
                 if (msgType === 'text') {
@@ -119,6 +120,7 @@ export const receiveWebhook = async (req, res) => {
                 } else if (msgType === 'audio') {
                     mediaId = message.audio.id;
                     mimeType = message.audio.mime_type;
+                    isVoice = message.audio.voice || false;
                     msgBody = 'Audio Message';
                 } else if (msgType === 'video') {
                     mediaId = message.video.id;
@@ -188,6 +190,7 @@ export const receiveWebhook = async (req, res) => {
                         mediaId: mediaId,
                         mimeType: mimeType,
                         isAnimated: isAnimated,
+                        isVoice: isVoice,
                         status: 'received',
                         timestamp: new Date(message.timestamp * 1000)
                     });

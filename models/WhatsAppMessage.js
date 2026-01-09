@@ -40,6 +40,10 @@ const whatsappMessageSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
+    isVoice: {
+        type: Boolean,
+        default: false
+    },
     status: {
         type: String,
         enum: ['sent', 'delivered', 'read', 'failed', 'received'],
