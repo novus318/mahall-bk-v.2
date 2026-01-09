@@ -36,6 +36,10 @@ const whatsappMessageSchema = new mongoose.Schema({
     caption: {
         type: String
     },
+    isAnimated: {
+        type: Boolean,
+        default: false
+    },
     status: {
         type: String,
         enum: ['sent', 'delivered', 'read', 'failed', 'received'],

@@ -103,6 +103,7 @@ export const receiveWebhook = async (req, res) => {
                 let msgBody = '';
                 let mediaId = null;
                 let mimeType = null;
+                let isAnimated = false;
 
                 // Handle Message Types
                 if (msgType === 'text') {
@@ -126,6 +127,7 @@ export const receiveWebhook = async (req, res) => {
                 } else if (msgType === 'sticker') {
                     mediaId = message.sticker.id;
                     mimeType = message.sticker.mime_type;
+                    isAnimated = message.sticker.animated || false;
                     msgBody = 'Sticker';
                 } else if (msgType === 'location') {
                     const loc = message.location;
@@ -185,6 +187,7 @@ export const receiveWebhook = async (req, res) => {
                         body: msgBody,
                         mediaId: mediaId,
                         mimeType: mimeType,
+                        isAnimated: isAnimated,
                         status: 'received',
                         timestamp: new Date(message.timestamp * 1000)
                     });
