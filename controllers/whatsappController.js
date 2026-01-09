@@ -4,8 +4,111 @@ import Member from '../models/Member.js';
 import Contract from '../models/Contract.js'; // For Tenants
 import Staff from '../models/Staff.js';
 import axios from 'axios';
+import FormData from 'form-data';
+import fs from 'fs';
+import path from 'path';
+import { execFile } from 'child_process';
+import util from 'util';
+import ffmpegPath from 'ffmpeg-static';
+import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 dotenv.config();
+
+const execFilePromise = util.promisify(execFile);
+
+// Removed fluent-ffmpeg require as we rely on native execution now
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// ... (Environment Variables and Helpers remain same)
+
+// ...
+
+// 2.5 Upload Media (POST)
+export const uploadMedia = async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+
+        let fileToUpload = req.file.buffer;
+        let mimeType = req.file.mimetype;
+        let originalName = req.file.originalname;
+
+        // Check if it's an audio file that might need conversion
+        // Browser recording usually sends audio/webm 
+        if (mimeType.startsWith('audio/') || mimeType === 'video/webm') { // Sometimes audio-only webm is labeled video/webm
+            // We will try to convert everything that looks like audio to MP3 just to be safe and compatible
+            // Create temp directory if not exists
+            const tempDir = path.join(__dirname, '../temp');
+            if (!fs.existsSync(tempDir)) {
+                fs.mkdirSync(tempDir);
+            }
+
+            const inputPath = path.join(tempDir, `input_${Date.now()}_${originalName}`);
+            const outputPath = path.join(tempDir, `output_${Date.now()}.mp3`);
+
+            console.log(`Starting audio conversion (native execFile) for ${originalName}`);
+
+            // Write buffer to temp file
+            fs.writeFileSync(inputPath, req.file.buffer);
+
+            // Convert to MP3 using native ffmpeg execution
+            try {
+                await execFilePromise(ffmpegPath, ['-y', '-i', inputPath, outputPath]);
+            } catch (ffmpegErr) {
+                console.error("FFmpeg Conversion Error:", ffmpegErr);
+                // If conversion fails, fallback to original file (best effort)
+                // But usually we want to know why. 
+                // For now, if conversion fails, let's throw to see explicit error
+                throw new Error(`Audio conversion failed: ${ffmpegErr.message}`);
+            }
+
+            // Read the converted file
+            if (fs.existsSync(outputPath)) {
+                fileToUpload = fs.readFileSync(outputPath);
+                mimeType = 'audio/mpeg';
+                originalName = 'voice-message.mp3';
+
+                // Cleanup output file
+                try { fs.unlinkSync(outputPath); } catch (e) { }
+            }
+
+            // Cleanup input file
+            try { fs.unlinkSync(inputPath); } catch (e) { }
+        }
+
+        const formData = new FormData();
+        // form-data package expects Buffer, not global Blob
+        formData.append('file', fileToUpload, { filename: originalName, contentType: mimeType });
+        formData.append('messaging_product', 'whatsapp');
+
+        const apiVersion = 'v17.0';
+        // Need to extract Phone Number ID from API_URL which is like .../PHONE_ID/messages
+        // Or assume API_URL base is .../PHONE_ID/messages, so replace /messages with /media
+        // A safer way if API_URL is strictly defined in .env
+        const phoneIdMatch = API_URL.match(/\/(\d+)\/messages/);
+        const phoneId = phoneIdMatch ? phoneIdMatch[1] : null;
+
+        if (!phoneId) throw new Error("Could not extract Phone ID from API_URL");
+
+        const uploadUrl = `https://graph.facebook.com/${apiVersion}/${phoneId}/media`;
+
+        const response = await axios.post(uploadUrl, formData, {
+            headers: {
+                'Authorization': `Bearer ${TOKEN}`,
+                // Axios with FormData usually handles Content-Type automatically, 
+                // but sometimes explicit header is needed or avoided.
+                // For native Node FormData (undici/fetch equivalent in Node 18+), let it set boundary.
+            }
+        });
+
+        res.status(200).json({ success: true, mediaId: response.data.id });
+
+    } catch (error) {
+        console.error('Upload Media Error:', error.response ? error.response.data : error.message);
+        res.status(500).json({ message: 'Failed to upload media', error: error.message });
+    }
+};
 
 // Environment Variables
 const TOKEN = process.env.WHATSAPP_TOKEN;
@@ -133,7 +236,7 @@ export const receiveWebhook = async (req, res) => {
                     msgBody = 'Sticker';
                 } else if (msgType === 'location') {
                     const loc = message.location;
-                    msgBody = `Location: ${loc.name || ''} ${loc.address || ''}\nhttps://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
+                    msgBody = `Location: ${loc.name || ''} ${loc.address || ''} \nhttps://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
                 } else if (msgType === 'contacts') {
                     const contacts = message.contacts;
                     msgBody = 'Contact: ' + contacts.map(c => `${c.name.formatted_name} (${c.phones[0].phone})`).join(', ');
@@ -248,7 +351,20 @@ export const sendMessage = async (req, res) => {
         if (messageType === 'text') {
             payload.text = { body: content }; // content is text string
         } else if (messageType === 'image') {
-            payload.image = { link: content, caption: caption }; // content is URL
+            if (content.match(/^\d+$/)) { // If content is numeric ID
+                payload.image = { id: content, caption: caption };
+            } else {
+                payload.image = { link: content, caption: caption }; // content is URL
+            }
+        } else if (messageType === 'audio') {
+            // Audio usually sent by ID
+            payload.audio = { id: content };
+        } else if (messageType === 'document') {
+            if (content.match(/^\d+$/)) {
+                payload.document = { id: content, caption: caption, filename: 'Document' };
+            } else {
+                payload.document = { link: content, caption: caption };
+            }
         }
 
         // Send to WhatsApp API
@@ -268,7 +384,8 @@ export const sendMessage = async (req, res) => {
             direction: 'OUTBOUND',
             type: messageType || 'text',
             body: messageType === 'text' ? content : (caption || 'Media'),
-            mediaUrl: messageType !== 'text' ? content : undefined,
+            mediaUrl: (messageType !== 'text' && !content.match(/^\d+$/)) ? content : undefined,
+            mediaId: (messageType !== 'text' && content.match(/^\d+$/)) ? content : undefined,
             status: 'sent',
             timestamp: new Date()
         });
