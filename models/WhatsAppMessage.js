@@ -6,6 +6,11 @@ const whatsappMessageSchema = new mongoose.Schema({
         ref: 'WhatsAppContact',
         required: true
     },
+    replyTo: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'WhatsAppMessage',
+        default: null
+    },
     whatsappMessageId: {
         type: String,
         unique: true,

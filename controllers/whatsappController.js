@@ -143,6 +143,15 @@ export const receiveWebhook = async (req, res) => {
                     msgBody = `[${msgType.toUpperCase()}]`;
                 }
 
+                // Handle Reply Context
+                let replyToId = null;
+                if (message.context && message.context.id) {
+                    const originalMsg = await WhatsAppMessage.findOne({ whatsappMessageId: message.context.id });
+                    if (originalMsg) {
+                        replyToId = originalMsg._id;
+                    }
+                }
+
                 // 2.1 Find or Create Contact
                 let contact = await WhatsAppContact.findOne({ phoneNumber: from });
 
@@ -191,6 +200,7 @@ export const receiveWebhook = async (req, res) => {
                         mimeType: mimeType,
                         isAnimated: isAnimated,
                         isVoice: isVoice,
+                        replyTo: replyToId,
                         status: 'received',
                         timestamp: new Date(message.timestamp * 1000)
                     });
@@ -305,6 +315,7 @@ export const getMessages = async (req, res) => {
     try {
         const { contactId } = req.params;
         const messages = await WhatsAppMessage.find({ contact: contactId })
+            .populate('replyTo')
             .sort({ timestamp: 1 }); // Oldest first (chat order)
 
         // Reset unread count when messages are fetched (Opened)
