@@ -12,6 +12,15 @@ const TOKEN = process.env.WHATSAPP_TOKEN;
 const API_URL = process.env.WHATSAPP_API_URL; // e.g., https://graph.facebook.com/v17.0/PHONE_ID/messages
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'my_test_token';
 
+// Extract Graph API Base from API_URL or default
+// If API_URL is https://graph.facebook.com/v17.0/123456/messages
+// Base is https://graph.facebook.com/v17.0
+const getGraphApiBase = () => {
+    if (!API_URL) return 'https://graph.facebook.com/v17.0';
+    const matches = API_URL.match(/(https:\/\/graph\.facebook\.com\/v\d+\.\d+)/);
+    return matches ? matches[0] : 'https://graph.facebook.com/v17.0';
+};
+
 // Helper: Normalize Phone Number (Remove + or 91 prefix if needed for DB search)
 // WhatsApp sends full number with country code (e.g. 919876543210). 
 // Database might store 9876543210 or +919876543210.
@@ -106,6 +115,24 @@ export const receiveWebhook = async (req, res) => {
                 } else if (msgType === 'document') {
                     msgBody = message.document.caption || message.document.filename || 'Document';
                     mediaId = message.document.id;
+                } else if (msgType === 'audio') {
+                    mediaId = message.audio.id;
+                    msgBody = 'Audio Message';
+                } else if (msgType === 'video') {
+                    mediaId = message.video.id;
+                    msgBody = message.video.caption || 'Video Message';
+                } else if (msgType === 'sticker') {
+                    mediaId = message.sticker.id;
+                    msgBody = 'Sticker';
+                } else if (msgType === 'location') {
+                    const loc = message.location;
+                    msgBody = `Location: ${loc.name || ''} ${loc.address || ''}\nhttps://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
+                } else if (msgType === 'contacts') {
+                    const contacts = message.contacts;
+                    msgBody = 'Contact: ' + contacts.map(c => `${c.name.formatted_name} (${c.phones[0].phone})`).join(', ');
+                } else if (msgType === 'reaction') {
+                    msgBody = `Reacted ${message.reaction.emoji} to message ${message.reaction.message_id}`;
+                    // In a real app, we might update the referenced message's reaction field
                 } else {
                     msgBody = `[${msgType.toUpperCase()}]`;
                 }
@@ -177,7 +204,7 @@ export const receiveWebhook = async (req, res) => {
                     );
                 }
             }
-            res.sendStatus(200);
+            res.status(200).json({ status: 'success', received: body });
         } else {
             res.sendStatus(404);
         }
@@ -310,3 +337,42 @@ export const refreshLink = async (req, res) => {
         res.status(500).json({ message: error.message });
     }
 }
+
+// 7. Get Media Proxy (GET)
+// Fetches media from WhatsApp API and streams it to client
+export const getMedia = async (req, res) => {
+    try {
+        const { mediaId } = req.params;
+        if (!mediaId) return res.status(400).send('Media ID required');
+
+        const baseUrl = getGraphApiBase();
+
+        // Step 1: Get Media URL
+        const urlRes = await axios.get(`${baseUrl}/${mediaId}`, {
+            headers: { 'Authorization': `Bearer ${TOKEN}` }
+        });
+
+        const mediaUrl = urlRes.data.url;
+        const mimeType = urlRes.data.mime_type;
+
+        // Step 2: Download Media Stream
+        const response = await axios({
+            url: mediaUrl,
+            method: 'GET',
+            responseType: 'stream',
+            headers: { 'Authorization': `Bearer ${TOKEN}` }
+        });
+
+        // Set Headers
+        res.setHeader('Content-Type', mimeType);
+        // Optional: Cache Control
+        res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year (media IDs change but content is static usually)
+
+        // Stream to client
+        response.data.pipe(res);
+
+    } catch (error) {
+        console.error('Media Proxy Error:', error.message);
+        res.status(500).send('Failed to fetch media');
+    }
+};
