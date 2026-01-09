@@ -102,6 +102,7 @@ export const receiveWebhook = async (req, res) => {
                 const msgType = message.type;
                 let msgBody = '';
                 let mediaId = null;
+                let mimeType = null;
 
                 // Handle Message Types
                 if (msgType === 'text') {
@@ -109,17 +110,22 @@ export const receiveWebhook = async (req, res) => {
                 } else if (msgType === 'image') {
                     msgBody = message.image.caption || 'Image';
                     mediaId = message.image.id;
+                    mimeType = message.image.mime_type;
                 } else if (msgType === 'document') {
                     msgBody = message.document.caption || message.document.filename || 'Document';
                     mediaId = message.document.id;
+                    mimeType = message.document.mime_type;
                 } else if (msgType === 'audio') {
                     mediaId = message.audio.id;
+                    mimeType = message.audio.mime_type;
                     msgBody = 'Audio Message';
                 } else if (msgType === 'video') {
                     mediaId = message.video.id;
+                    mimeType = message.video.mime_type;
                     msgBody = message.video.caption || 'Video Message';
                 } else if (msgType === 'sticker') {
                     mediaId = message.sticker.id;
+                    mimeType = message.sticker.mime_type;
                     msgBody = 'Sticker';
                 } else if (msgType === 'location') {
                     const loc = message.location;
@@ -178,6 +184,7 @@ export const receiveWebhook = async (req, res) => {
                         type: msgType,
                         body: msgBody,
                         mediaId: mediaId,
+                        mimeType: mimeType,
                         status: 'received',
                         timestamp: new Date(message.timestamp * 1000)
                     });
