@@ -1,5 +1,6 @@
 import House from '../models/House.js';
 import Family from '../models/Family.js';
+import Member from '../models/Member.js';
 import xlsx from 'xlsx';
 
 // @desc    Get all houses
@@ -126,6 +127,9 @@ const createHouse = async (req, res) => {
 // @desc    Update a house
 // @route   PUT /api/houses/:id
 // @access  Private (Admin/Staff)
+// @desc    Update a house
+// @route   PUT /api/houses/:id
+// @access  Private (Admin/Staff)
 const updateHouse = async (req, res) => {
     try {
         const { name, address } = req.body;
@@ -134,8 +138,22 @@ const updateHouse = async (req, res) => {
         if (house) {
             house.name = name !== undefined ? name : house.name;
             house.address = address !== undefined ? address : house.address;
-            if (req.body.head !== undefined) {
-                house.head = req.body.head;
+
+            if (req.body.head !== undefined && req.body.head !== (house.head ? house.head.toString() : null)) {
+                const oldHeadId = house.head;
+                const newHeadId = req.body.head;
+
+                // Update Old Head (Demote to Resident)
+                if (oldHeadId) {
+                    await Member.findByIdAndUpdate(oldHeadId, { relationshipToHead: 'Resident' });
+                }
+
+                // Update New Head (Promote to Head)
+                if (newHeadId) {
+                    await Member.findByIdAndUpdate(newHeadId, { relationshipToHead: 'Head' });
+                }
+
+                house.head = newHeadId;
             }
 
             const updatedHouse = await house.save();

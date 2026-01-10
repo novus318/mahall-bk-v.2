@@ -69,9 +69,9 @@ const createMember = async (req, res) => {
             place,
             idCards,
             houseId,
-            parents, // Array of Member IDs
-            spouse,
-            children
+            // New Relationship Logic Inputs
+            relatedMemberId,
+            relationshipType // 'Wife', 'Son', 'Daughter', 'Brother', 'Sister', 'Father', 'Mother', 'Resident', etc.
         } = req.body;
 
         const house = await House.findById(houseId).populate('family');
@@ -87,7 +87,9 @@ const createMember = async (req, res) => {
         let nextSeq = 1;
         if (lastMember) {
             // Extract sequence from last ID: CYS00101 -> 01
-            const lastSeqStr = lastMember.customId.substring(6); // Remove first 6 chars (House ID)
+            // Use house.customId length to safely slice
+            const prefixLength = house.customId.length;
+            const lastSeqStr = lastMember.customId.substring(prefixLength);
             const lastSeq = parseInt(lastSeqStr, 10);
             if (!isNaN(lastSeq)) {
                 nextSeq = lastSeq + 1;
@@ -98,6 +100,7 @@ const createMember = async (req, res) => {
         const seqStr = nextSeq.toString().padStart(2, '0');
         const memberCustomId = `${house.customId}${seqStr}`;
 
+        // Initial Member Data
         const memberData = {
             name,
             customId: memberCustomId,
@@ -113,18 +116,119 @@ const createMember = async (req, res) => {
             place,
             idCards,
             house: houseId,
-            parents,
-            spouse,
-            children
+            family: house.family ? house.family._id : undefined,
+            relationshipToHead: relationshipType === 'Resident' ? 'Resident' : 'Other' // Default, updated logic below overrides if needed
         };
 
-        const member = new Member(memberData);
+        // --- Relationship Inference Logic ---
+        let parentsToSet = [];
+        let spouseToSet = undefined;
+        let childrenToSet = [];
+        let siblingsToSet = [];
 
-        if (house.family) {
-            member.family = house.family._id;
+        if (relatedMemberId && relationshipType && relationshipType !== 'Resident') {
+            const relatedMember = await Member.findById(relatedMemberId);
+
+            if (!relatedMember) {
+                return res.status(404).json({ status: false, message: 'Related member not found' });
+            }
+
+            // Case 1: Adding Spouse (Husband/Wife)
+            if (relationshipType === 'Husband' || relationshipType === 'Wife') {
+                spouseToSet = relatedMemberId;
+                memberData.relationshipToHead = 'Spouse'; // Assuming relatedMember is Head, otherwise logic gets complex (Keep simple for now)
+
+                // If related member is Head, this is Spouse. 
+                // We should probably check if relatedMember has parents to determine precise 'Son-in-law' etc, but 'Spouse' is safe relative to that person.
+            }
+
+            // Case 2: Adding Child (Son/Daughter)
+            else if (relationshipType === 'Son' || relationshipType === 'Daughter') {
+                parentsToSet.push(relatedMemberId);
+                // If related member has a spouse, add them as parent too
+                if (relatedMember.spouse) {
+                    parentsToSet.push(relatedMember.spouse);
+                }
+                memberData.relationshipToHead = relationshipType;
+            }
+
+            // Case 3: Adding Sibling (Brother/Sister)
+            else if (relationshipType === 'Brother' || relationshipType === 'Sister') {
+                // Copy parents from sibling
+                if (relatedMember.parents && relatedMember.parents.length > 0) {
+                    parentsToSet = [...relatedMember.parents];
+                }
+                siblingsToSet.push(relatedMemberId);
+                // Also add other siblings? (Ideally yes, but let's link at least one)
+                if (relatedMember.siblings && relatedMember.siblings.length > 0) {
+                    siblingsToSet.push(...relatedMember.siblings);
+                }
+                memberData.relationshipToHead = relationshipType;
+            }
+
+            // Case 4: Adding Parent (Father/Mother)
+            else if (relationshipType === 'Father' || relationshipType === 'Mother') {
+                childrenToSet.push(relatedMemberId);
+                // Check if related member has other parent defined?
+                // Complex. For now, just link child.
+                memberData.relationshipToHead = relationshipType;
+            }
+        } else if (relationshipType === 'Head') {
+            memberData.relationshipToHead = 'Head';
+            // Update House Head Logic? Handled separately usually, or we can set it here if house.head is empty
+            if (!house.head) {
+                // We'll do this update after creation
+            }
         }
 
-        await member.save();
+        memberData.parents = parentsToSet.length > 0 ? parentsToSet : undefined;
+        memberData.spouse = spouseToSet;
+        memberData.children = childrenToSet.length > 0 ? childrenToSet : undefined;
+        memberData.siblings = siblingsToSet.length > 0 ? siblingsToSet : undefined;
+
+        const member = new Member(memberData);
+        const savedMember = await member.save();
+
+        // --- Bi-directional Updates ---
+
+        // 1. If Spouse Set -> Update Spouse
+        if (spouseToSet) {
+            await Member.findByIdAndUpdate(spouseToSet, { spouse: savedMember._id });
+        }
+
+        // 2. If Parents Set -> Update Parents' Children
+        if (parentsToSet.length > 0) {
+            await Member.updateMany(
+                { _id: { $in: parentsToSet } },
+                { $push: { children: savedMember._id } }
+            );
+        }
+
+        // 3. If Children Set -> Update Children's Parents
+        if (childrenToSet.length > 0) {
+            await Member.updateMany(
+                { _id: { $in: childrenToSet } },
+                { $push: { parents: savedMember._id } }
+            );
+        }
+
+        // 4. If Siblings Set -> Update Siblings' Siblings List
+        if (siblingsToSet.length > 0) {
+            await Member.updateMany(
+                { _id: { $in: siblingsToSet } },
+                { $push: { siblings: savedMember._id } }
+            );
+        }
+
+        // 5. Special House Head Handling
+        if (relationshipType === 'Head' || (!house.head && !relatedMemberId && relationshipType !== 'Resident')) {
+            await House.findByIdAndUpdate(houseId, { head: savedMember._id });
+            // Also update member to say 'Head' just in case
+            if (member.relationshipToHead !== 'Head') {
+                member.relationshipToHead = 'Head';
+                await member.save();
+            }
+        }
 
         res.status(201).json({ status: true, message: "Member created", data: member });
     } catch (error) {
@@ -135,18 +239,81 @@ const createMember = async (req, res) => {
 // @desc    Update a member
 // @route   PUT /api/members/:id
 // @access  Private (Admin/Staff)
+// @route   PUT /api/members/:id
+// @access  Private (Admin/Staff)
+// @route   PUT /api/members/:id
+// @access  Private (Admin/Staff)
 const updateMember = async (req, res) => {
     try {
+        const { relatedMemberId, relationshipType, ...updateData } = req.body;
         const member = await Member.findById(req.params.id);
 
         if (member) {
-            // Update fields from request body if they exist
-            Object.keys(req.body).forEach(key => {
-                // Prevent updating customId or family/house relations directly here if need be (for now allowing all updates)
-                if (key !== 'customId' && key !== '_id') {
-                    member[key] = req.body[key];
+            // Update basic fields
+            Object.keys(updateData).forEach(key => {
+                if (key !== 'customId' && key !== '_id' && key !== 'house' && key !== 'family') {
+                    member[key] = updateData[key];
                 }
             });
+
+            // Logic to update relationships if provided
+            if (relationshipType) {
+                // 0. Clear Old Relationships (Spouse & Parents - defining links)
+                // If we are changing relationship, we assume the old position is invalid.
+
+                // Clear Spouse
+                if (member.spouse) {
+                    await Member.findByIdAndUpdate(member.spouse, { $unset: { spouse: 1 } });
+                    member.spouse = undefined;
+                }
+
+                // Clear Parents (Remove self from their children list)
+                if (member.parents && member.parents.length > 0) {
+                    await Member.updateMany(
+                        { _id: { $in: member.parents } },
+                        { $pull: { children: member._id } }
+                    );
+                    member.parents = [];
+                }
+
+                member.relationshipToHead = relationshipType === 'Resident' ? 'Resident' : relationshipType;
+
+                if (relatedMemberId && relationshipType !== 'Resident') {
+                    const relatedMember = await Member.findById(relatedMemberId);
+                    if (relatedMember) {
+                        // 1. Spouse
+                        if (relationshipType === 'Husband' || relationshipType === 'Wife') {
+                            member.spouse = relatedMemberId;
+                            // Ensure related member also doesn't have a conflict? (Optional, but good safety)
+                            if (relatedMember.spouse && relatedMember.spouse.toString() !== member._id.toString()) {
+                                // Clear their old spouse? Or error? Let's overwrite for now.
+                                await Member.findByIdAndUpdate(relatedMember.spouse, { $unset: { spouse: 1 } });
+                            }
+                            await Member.findByIdAndUpdate(relatedMemberId, { spouse: member._id });
+                        }
+                        // 2. Child (Son/Daughter)
+                        else if (relationshipType === 'Son' || relationshipType === 'Daughter') {
+                            // If they have a spouse (mother/father), add them too? 
+                            // For simplicity, just add the selected parent.
+                            member.parents.push(relatedMemberId);
+                            await Member.findByIdAndUpdate(relatedMemberId, { $addToSet: { children: member._id } });
+
+                            // Try to auto-link other parent if selected parent has a spouse
+                            if (relatedMember.spouse) {
+                                member.parents.push(relatedMember.spouse);
+                                await Member.findByIdAndUpdate(relatedMember.spouse, { $addToSet: { children: member._id } });
+                            }
+                        }
+                        // 3. Parent (Father/Mother)
+                        else if (relationshipType === 'Father' || relationshipType === 'Mother') {
+                            if (!member.children.includes(relatedMemberId)) {
+                                member.children.push(relatedMemberId);
+                                await Member.findByIdAndUpdate(relatedMemberId, { $addToSet: { parents: member._id } });
+                            }
+                        }
+                    }
+                }
+            }
 
             const updatedMember = await member.save();
             res.json({ status: true, message: "Member updated", data: updatedMember });
@@ -265,10 +432,22 @@ const bulkImportMembers = async (req, res) => {
                         gender,
                         dateOfBirth: dob,
                         mobile: row.Mobile,
+                        whatsapp: row.WhatsApp,
                         bloodGroup: row.BloodGroup,
                         maritalStatus: row.MaritalStatus,
+                        education: row.Education,
+                        madrassa: row.Madrassa,
+                        occupation: row.Occupation,
+                        place: row.Place,
                         house: house._id,
-                        family: house.family ? house.family._id : undefined
+                        family: house.family ? house.family._id : undefined,
+                        idCards: {
+                            aadhaar: ['yes', 'true', '1'].includes(String(row.ID_Aadhaar || '').toLowerCase()),
+                            drivingLicense: ['yes', 'true', '1'].includes(String(row.ID_DrivingLicense || '').toLowerCase()),
+                            voterId: ['yes', 'true', '1'].includes(String(row.ID_VoterID || '').toLowerCase()),
+                            panCard: ['yes', 'true', '1'].includes(String(row.ID_PAN || '').toLowerCase()),
+                            healthCard: ['yes', 'true', '1'].includes(String(row.ID_HealthCard || '').toLowerCase())
+                        }
                     });
 
                     const savedMember = await newMember.save();
@@ -300,23 +479,61 @@ const bulkImportMembers = async (req, res) => {
             };
 
             for (const { doc, row } of createdMembersInBatch) {
-                const fatherId = row.FatherID ? await findMemberIdByCustomId(row.FatherID) : null;
-                const motherId = row.MotherID ? await findMemberIdByCustomId(row.MotherID) : null;
-                const spouseId = row.SpouseID ? await findMemberIdByCustomId(row.SpouseID) : null;
+                const relatedCustomId = row.RelatedMemberID;
+                const relationshipType = row.Relationship ? String(row.Relationship).trim().toLowerCase() : null;
 
-                if (row.FatherID && !fatherId) warnings.push(`Warning: Father ID '${row.FatherID}' not found for '${doc.name}'`);
-                if (row.MotherID && !motherId) warnings.push(`Warning: Mother ID '${row.MotherID}' not found for '${doc.name}'`);
-                if (row.SpouseID && !spouseId) warnings.push(`Warning: Spouse ID '${row.SpouseID}' not found for '${doc.name}'`);
+                if (!relatedCustomId) continue;
 
-                const pArr = [];
-                if (fatherId) pArr.push(fatherId);
-                if (motherId) pArr.push(motherId);
+                const relatedMemberId = await findMemberIdByCustomId(relatedCustomId);
 
-                if (pArr.length > 0 || spouseId) {
-                    await Member.findByIdAndUpdate(doc._id, {
-                        parents: pArr.length > 0 ? pArr : undefined,
-                        spouse: spouseId
-                    });
+                if (!relatedMemberId) {
+                    warnings.push(`Warning: Related Member ID '${relatedCustomId}' not found for '${doc.name}'`);
+                    continue;
+                }
+
+                const relatedMemberDoc = await Member.findById(relatedMemberId);
+
+                if (!relationshipType) continue;
+
+                try {
+                    // Logic: "I am [relationshipType] of [relatedMemberId]"
+                    if (['husband', 'wife', 'spouse'].includes(relationshipType)) {
+                        await Member.findByIdAndUpdate(doc._id, { spouse: relatedMemberId });
+                        await Member.findByIdAndUpdate(relatedMemberId, { spouse: doc._id });
+                    }
+                    else if (['son', 'daughter', 'child'].includes(relationshipType)) {
+                        // They are my parent
+                        const parents = [relatedMemberId];
+                        if (relatedMemberDoc && relatedMemberDoc.spouse) parents.push(relatedMemberDoc.spouse);
+
+                        await Member.findByIdAndUpdate(doc._id, { $addToSet: { parents: { $each: parents } } });
+
+                        // Add me to their children
+                        await Member.findByIdAndUpdate(relatedMemberId, { $addToSet: { children: doc._id } });
+                        if (relatedMemberDoc && relatedMemberDoc.spouse) {
+                            await Member.findByIdAndUpdate(relatedMemberDoc.spouse, { $addToSet: { children: doc._id } });
+                        }
+                    }
+                    else if (['father', 'mother', 'parent'].includes(relationshipType)) {
+                        // I am their parent -> They are my child
+                        // Add them to my children
+                        await Member.findByIdAndUpdate(doc._id, { $addToSet: { children: relatedMemberId } });
+
+                        // Add me to their parents
+                        await Member.findByIdAndUpdate(relatedMemberId, { $addToSet: { parents: doc._id } });
+                    }
+                    else if (['brother', 'sister', 'sibling'].includes(relationshipType)) {
+                        // We share parents
+                        if (relatedMemberDoc && relatedMemberDoc.parents && relatedMemberDoc.parents.length > 0) {
+                            await Member.findByIdAndUpdate(doc._id, { $addToSet: { parents: { $each: relatedMemberDoc.parents } } });
+                            // Add me to common parents' children
+                            for (const pId of relatedMemberDoc.parents) {
+                                await Member.findByIdAndUpdate(pId, { $addToSet: { children: doc._id } });
+                            }
+                        }
+                    }
+                } catch (err) {
+                    warnings.push(`Warning: Failed to link '${doc.name}' as ${relationshipType} of ${relatedCustomId}: ${err.message}`);
                 }
             }
         }

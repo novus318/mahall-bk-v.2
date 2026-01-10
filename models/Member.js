@@ -80,7 +80,12 @@ const memberSchema = mongoose.Schema({
     siblings: [{
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Member'
-    }]
+    }],
+    relationshipToHead: {
+        type: String,
+        enum: ['Head', 'Spouse', 'Husband', 'Wife', 'Son', 'Daughter', 'Grandson', 'Granddaughter', 'Brother', 'Sister', 'Son-in-law', 'Daughter-in-law', 'Father', 'Mother', 'Resident', 'Other'],
+        default: 'Other'
+    }
 }, {
     timestamps: true
 });
