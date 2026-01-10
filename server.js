@@ -22,9 +22,29 @@ app.get('/', (req, res) => {
 // Import routes
 import mahallRoutes from './routes/mahallRoutes.js';
 import authRoutes from './routes/authRoutes.js';
+import userRoutes from './routes/userRoutes.js';
+import settingsRoutes from './routes/settingsRoutes.js';
+import inventoryRoutes from './routes/inventoryRoutes.js';
+import buildingRoutes from './routes/buildingRoutes.js';
+import contractRoutes from './routes/contractRoutes.js';
+import staffRoutes from './routes/staffRoutes.js';
+import accountRoutes from './routes/accountRoutes.js';
+import paymentRoutes from './routes/paymentRoutes.js';
+import receiptRoutes from './routes/receiptRoutes.js';
+import whatsappRoutes from './routes/whatsappRoutes.js';
 
 app.use('/api/auth', authRoutes);
+app.use('/api/whatsapp', whatsappRoutes); // Moved up to valid global auth interception
 app.use('/api', mahallRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/inventory', inventoryRoutes);
+app.use('/api/staff', staffRoutes);
+app.use('/api/accounts', accountRoutes);
+app.use('/api/buildings', buildingRoutes);
+app.use('/api/contracts', contractRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/receipts', receiptRoutes);
 
 const PORT = process.env.PORT || 5000;
 
