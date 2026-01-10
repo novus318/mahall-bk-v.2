@@ -14,6 +14,11 @@ const systemSettingsSchema = mongoose.Schema({
         receiptPrefix: { type: String, default: 'RC-' },
         receiptCurrentNumber: { type: Number, default: 1 },
         receiptSequenceLimit: { type: Number, default: 999 }
+    },
+    collectionSettings: {
+        receiptPrefix: { type: String, default: 'MC-' }, // Mahall Collection
+        receiptCurrentNumber: { type: Number, default: 1 },
+        receiptSequenceLimit: { type: Number, default: 999 }
     }
 }, {
     timestamps: true

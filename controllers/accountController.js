@@ -181,7 +181,12 @@ export const getAccountTransactions = async (req, res) => {
         const transactions = await AccountTransaction.find({ account: req.params.id })
             .populate('relatedAccount', 'name')
             .populate('payment', 'receiptNo _id')
-            .populate('receipt', 'receiptNo _id') // Added receipt population
+            .populate('receipt', 'receiptNo _id')
+            .populate({
+                path: 'collectionReceipt',
+                select: 'receiptNo payer',
+                populate: { path: 'payer.entityId', select: 'name customId' } // Optional: depending on if we need deep detail
+            })
             .sort({ date: -1, createdAt: -1 });
 
         res.json({ status: true, data: transactions });
@@ -220,6 +225,11 @@ export const getAllTransactions = async (req, res) => {
             .populate('relatedAccount', 'name')
             .populate('payment', 'receiptNo _id')
             .populate('receipt', 'receiptNo _id')
+            .populate({
+                path: 'collectionReceipt',
+                select: 'receiptNo payer',
+                populate: { path: 'payer.entityId', select: 'name customId' }
+            })
             .sort({ date: -1, createdAt: -1 })
             .limit(limit * 1)
             .skip((page - 1) * limit);

@@ -18,6 +18,10 @@ const accountTransactionSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Receipt'
     },
+    collectionReceipt: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'CollectionReceipt'
+    },
     type: {
         type: String,
         enum: ['OPENING_BALANCE', 'TRANSFER_IN', 'TRANSFER_OUT', 'INCOME', 'EXPENSE'],

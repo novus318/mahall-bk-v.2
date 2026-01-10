@@ -22,6 +22,18 @@ const houseSchema = mongoose.Schema({
     head: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Member'
+    },
+    subscription: {
+        frequency: {
+            type: String,
+            enum: ['Monthly', 'Yearly', 'None'],
+            default: 'None'
+        },
+        amount: {
+            type: Number,
+            default: 0
+        },
+        startDate: { type: Date }
     }
 }, {
     timestamps: true

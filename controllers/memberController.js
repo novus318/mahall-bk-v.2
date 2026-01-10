@@ -555,4 +555,23 @@ const bulkImportMembers = async (req, res) => {
     }
 };
 
-export { getMembers, createMember, updateMember, deleteMember, bulkImportMembers };
+// @desc    Get member by ID
+// @route   GET /api/members/:id
+// @access  Private (Admin/Staff)
+const getMemberById = async (req, res) => {
+    try {
+        const member = await Member.findById(req.params.id)
+            .populate('house', 'name customId')
+            .populate('family', 'name customId');
+
+        if (member) {
+            res.json({ status: true, data: member });
+        } else {
+            res.status(404).json({ status: false, message: 'Member not found' });
+        }
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+export { getMembers, getMemberById, createMember, updateMember, deleteMember, bulkImportMembers };

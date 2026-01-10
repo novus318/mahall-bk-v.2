@@ -10,7 +10,7 @@ const receiptSchema = new Schema({
     },
     type: {
         type: String,
-        enum: ['INCOME'],
+        enum: ['INCOME', 'COLLECTION'],
         default: 'INCOME'
     },
     date: {

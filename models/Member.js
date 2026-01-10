@@ -85,6 +85,18 @@ const memberSchema = mongoose.Schema({
         type: String,
         enum: ['Head', 'Spouse', 'Husband', 'Wife', 'Son', 'Daughter', 'Grandson', 'Granddaughter', 'Brother', 'Sister', 'Son-in-law', 'Daughter-in-law', 'Father', 'Mother', 'Resident', 'Other'],
         default: 'Other'
+    },
+    subscription: {
+        frequency: {
+            type: String,
+            enum: ['Monthly', 'Yearly', 'None'],
+            default: 'None'
+        },
+        amount: {
+            type: Number,
+            default: 0
+        },
+        startDate: { type: Date }
     }
 }, {
     timestamps: true
