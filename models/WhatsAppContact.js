@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 
 const whatsappContactSchema = new mongoose.Schema({
     phoneNumber: {
-        type: String, // E.164 format (e.g., 919876543210)
+        type: String, // E.164 format (e.g., 911234567898)
         required: true,
         unique: true
     },

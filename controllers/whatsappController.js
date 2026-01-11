@@ -125,8 +125,8 @@ const getGraphApiBase = () => {
 };
 
 // Helper: Normalize Phone Number (Remove + or 91 prefix if needed for DB search)
-// WhatsApp sends full number with country code (e.g. 919876543210). 
-// Database might store 9876543210 or +919876543210.
+// WhatsApp sends full number with country code (e.g. 911234567898). 
+// Database might store 1234567898 or +911234567898.
 // We will try exact match first, then partial match.
 const findEntityByPhone = async (phoneNumber) => {
     // 1. Check MEMBER (using 'mobile')
@@ -200,7 +200,7 @@ export const receiveWebhook = async (req, res) => {
                 const message = change.messages[0];
                 const contactInfo = change.contacts ? change.contacts[0] : null; // Profile name source
 
-                const from = message.from; // Phone number (e.g., 919876543210)
+                const from = message.from; // Phone number (e.g., 911234567898)
                 const msgId = message.id;
                 const msgType = message.type;
                 let msgBody = '';

@@ -398,8 +398,11 @@ const downloadCollectionReceiptPdf = async (req, res) => {
             return res.status(404).json({ status: false, message: 'Receipt not found' });
         }
 
-        // A5 Size: ~420 x 595 points
-        const doc = new PDFDocument({ size: 'A5', margin: 30 }); // Smaller margin for A5
+        // A5 Size: 420 x 595 points
+        const doc = new PDFDocument({
+            size: 'A5',
+            margin: 40
+        });
 
         // Stream to response
         res.setHeader('Content-Type', 'application/pdf');
@@ -407,124 +410,312 @@ const downloadCollectionReceiptPdf = async (req, res) => {
 
         doc.pipe(res);
 
-        // --- PDF Content ---
+        // === Configuration ===
+        const MARGIN = 40;
+        const PAGE_WIDTH = 420;
+        const CONTENT_WIDTH = PAGE_WIDTH - (MARGIN * 2);
 
-        // Config
-        const startX = 30;
-        const endX = 390; // 420 - 30
-        const contentWidth = endX - startX;
-        const centerX = 210;
+        // Simple Black & White Color Scheme (Tally/Microsoft Style)
+        const BLACK = '#000000';
+        const DARK_GRAY = '#333333';
+        const MEDIUM_GRAY = '#666666';
+        const LIGHT_GRAY = '#999999';
+        const BORDER_GRAY = '#cccccc';
 
-        // Header
-        // doc.image('path/to/logo.png', startX, 30, { width: 40 }); // Placeholder
+        let y = MARGIN;
 
-        doc.font('Helvetica-Bold').fontSize(16).fillColor('#15803d').text('VKJ', { align: 'center' });
-        doc.fontSize(9).fillColor('#334155').text('VELLAP KHADIMUL ISLAM IAMA-ATH', { align: 'center' });
-        doc.moveDown(0.3);
+        // ==================== HEADER ====================
 
-        doc.fontSize(7).fillColor('black').text('Reg. No: 1/88 K.W.B. Reg.No.A2/135/RA', { align: 'center' });
-        doc.text('VELLAP, P.O. TRIKARIPUR-671310, KASARGOD DIST', { align: 'center' });
-        doc.text('Phone: +91 9876543210', { align: 'center' });
+        // Organization Name - Bold & Centered
+        doc.font('Helvetica-Bold')
+            .fontSize(16)
+            .fillColor(BLACK)
+            .text('THAYINERI JUMA MASJID', MARGIN, y, {
+                width: CONTENT_WIDTH,
+                align: 'center'
+            });
+        y += 18;
 
-        doc.moveDown(0.8);
-        doc.lineWidth(0.5).moveTo(startX, doc.y).lineTo(endX, doc.y).strokeColor('#e2e8f0').stroke();
-        doc.moveDown(1);
+        // Abbreviation
+        doc.font('Helvetica')
+            .fontSize(9)
+            .fillColor(DARK_GRAY)
+            .text('(TMJ)', MARGIN, y, {
+                width: CONTENT_WIDTH,
+                align: 'center'
+            });
+        y += 15;
 
-        // Info Grid
-        const gridY = doc.y;
-        doc.fillColor('black');
+        // Address
+        doc.fontSize(8)
+            .fillColor(MEDIUM_GRAY)
+            .text('458X+XVH, Thayineri Road, Thrikaripur, Kerala 670307', MARGIN, y, {
+                width: CONTENT_WIDTH,
+                align: 'center'
+            });
+        y += 11;
 
-        // Left Column (MetaData)
-        doc.fontSize(9);
-        const labelX = startX;
-        const valueX = startX + 50;
+        doc.text('Phone: +91 1234567898', MARGIN, y, {
+            width: CONTENT_WIDTH,
+            align: 'center'
+        });
+        y += 20;
 
-        doc.font('Helvetica-Bold').text('Date:', labelX, gridY);
-        doc.font('Helvetica').text(new Date(receipt.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }), valueX, gridY);
+        // Separator Line
+        doc.lineWidth(1)
+            .moveTo(MARGIN, y)
+            .lineTo(PAGE_WIDTH - MARGIN, y)
+            .strokeColor(BLACK)
+            .stroke();
+        y += 15;
 
-        doc.font('Helvetica-Bold').text('Day:', labelX, gridY + 12);
-        doc.font('Helvetica').text(new Date(receipt.date).toLocaleDateString('en-US', { weekday: 'long' }), valueX, gridY + 12);
+        // ==================== RECEIPT TITLE ====================
 
-        doc.font('Helvetica-Bold').text('From:', labelX, gridY + 30);
+        doc.font('Helvetica-Bold')
+            .fontSize(12)
+            .fillColor(BLACK)
+            .text('COLLECTION RECEIPT', MARGIN, y, {
+                width: CONTENT_WIDTH,
+                align: 'center'
+            });
+        y += 20;
+
+        // ==================== RECEIPT INFO TABLE ====================
+
+        // Draw outer box
+        const infoBoxTop = y;
+        const infoBoxHeight = 65;
+        doc.rect(MARGIN, infoBoxTop, CONTENT_WIDTH, infoBoxHeight)
+            .lineWidth(1)
+            .strokeColor(BLACK)
+            .stroke();
+
+        // Vertical divider in the middle
+        const midX = MARGIN + (CONTENT_WIDTH / 2);
+        doc.moveTo(midX, infoBoxTop)
+            .lineTo(midX, infoBoxTop + infoBoxHeight)
+            .stroke();
+
+        // Left Section
+        let infoY = infoBoxTop + 10;
+        const leftLabelX = MARGIN + 8;
+        const leftValueX = MARGIN + 70;
+
+        doc.font('Helvetica-Bold').fontSize(8).fillColor(BLACK);
+
+        // Receipt No
+        doc.text('Receipt No:', leftLabelX, infoY);
+        doc.font('Helvetica').text(receipt.receiptNo, leftValueX, infoY);
+        infoY += 13;
+
+        // Date
+        doc.font('Helvetica-Bold').text('Date:', leftLabelX, infoY);
+        doc.font('Helvetica').text(
+            new Date(receipt.date).toLocaleDateString('en-GB', {
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric'
+            }),
+            leftValueX,
+            infoY
+        );
+        infoY += 13;
+
+        // Day
+        doc.font('Helvetica-Bold').text('Day:', leftLabelX, infoY);
+        doc.font('Helvetica').text(
+            new Date(receipt.date).toLocaleDateString('en-US', { weekday: 'long' }),
+            leftValueX,
+            infoY
+        );
+
+        // Right Section
+        infoY = infoBoxTop + 10;
+        const rightLabelX = midX + 8;
+        const rightValueX = midX + 60;
+
+        // Received From
+        doc.font('Helvetica-Bold').text('From:', rightLabelX, infoY);
         const payerName = receipt.payer.entityId?.name || receipt.payer.name || 'Unknown';
-        doc.font('Helvetica').text(payerName, valueX, gridY + 30);
+        doc.font('Helvetica').text(payerName, rightValueX, infoY, {
+            width: (PAGE_WIDTH - MARGIN - rightValueX - 8),
+            lineBreak: true
+        });
+        infoY += 13;
 
-        doc.font('Helvetica-Bold').text('House:', labelX, gridY + 42);
-        const houseId = receipt.payer.entityType === 'House' ? receipt.payer.entityId?.customId : (receipt.payer.entityId?.customId || '-');
-        doc.font('Helvetica').text(houseId || '-', valueX, gridY + 42);
+        // House ID
+        doc.font('Helvetica-Bold').text('House ID:', rightLabelX, infoY);
+        const houseId = receipt.payer.entityType === 'House'
+            ? receipt.payer.entityId?.customId
+            : (receipt.payer.entityId?.customId || '-');
+        doc.font('Helvetica').text(houseId || '-', rightValueX, infoY);
 
-        // Right Column (Receipt No)
-        doc.font('Helvetica-Bold').text('Receipt No:', 260, gridY);
-        doc.font('Helvetica').text(receipt.receiptNo, 320, gridY);
+        y = infoBoxTop + infoBoxHeight + 15;
 
-        doc.moveDown(5); // Space before table
+        // ==================== DETAILS TABLE ====================
 
-        // Details Table
-        doc.font('Helvetica-Bold').fontSize(10).text('Details:', startX);
-        doc.moveDown(0.3);
+        const tableTop = y;
+        const colDescX = MARGIN;
+        const colDescWidth = CONTENT_WIDTH * 0.65;
+        const colAmountX = MARGIN + colDescWidth;
+        const colAmountWidth = CONTENT_WIDTH * 0.35;
+        const rowHeight = 22;
 
-        const tableTop = doc.y;
-        const rowHeight = 20;
+        // Table Header
+        doc.rect(MARGIN, tableTop, CONTENT_WIDTH, rowHeight)
+            .lineWidth(1)
+            .strokeColor(BLACK)
+            .fillAndStroke(BLACK, BLACK);
 
-        // Header Background
-        doc.rect(startX, tableTop, contentWidth, rowHeight).fill('#f8fafc');
-        doc.fillColor('black');
+        doc.font('Helvetica-Bold')
+            .fontSize(9)
+            .fillColor('#FFFFFF')
+            .text('Description', colDescX + 8, tableTop + 7, {
+                width: colDescWidth - 16,
+                align: 'left'
+            })
+            .text('Amount (Rs.)', colAmountX + 8, tableTop + 7, {
+                width: colAmountWidth - 16,
+                align: 'right'
+            });
 
-        // Header Text
-        const descX = startX + 10;
-        const amountX = endX - 70;
-        const amountWidth = 60;
+        let tableY = tableTop + rowHeight;
 
-        doc.fontSize(8);
-        doc.text('Description', descX, tableTop + 6);
-        doc.text('Amount', amountX, tableTop + 6, { width: amountWidth, align: 'right' });
+        // Details Row
+        const descriptionText = receipt.description;
+        const periodText = receipt.dueId?.period ? `Period: ${receipt.dueId.period}` : '';
 
-        // Divider
-        doc.moveTo(startX, tableTop + rowHeight).lineTo(endX, tableTop + rowHeight).strokeColor('#cbd5e1').stroke();
+        // Calculate row height based on content
+        const descLines = doc.heightOfString(descriptionText, {
+            width: colDescWidth - 16,
+            lineBreak: true
+        });
+        const detailRowHeight = Math.max(descLines + (periodText ? 12 : 0) + 12, 35);
 
-        // Rows
-        let currentY = tableTop + rowHeight + 8;
+        // Draw detail row border
+        doc.rect(MARGIN, tableY, CONTENT_WIDTH, detailRowHeight)
+            .lineWidth(1)
+            .strokeColor(BLACK)
+            .stroke();
 
-        // Description
-        doc.font('Helvetica').fillColor('black').text(receipt.description, descX, currentY, { width: 240, align: 'left' });
+        // Vertical line between columns
+        doc.moveTo(colAmountX, tableY)
+            .lineTo(colAmountX, tableY + detailRowHeight)
+            .stroke();
 
-        // Sub-description details
-        if (receipt.dueId) {
-            const textHeight = doc.heightOfString(receipt.description, { width: 240 });
-            doc.fontSize(7).fillColor('#64748b').text(`Period: ${receipt.dueId.period}`, descX, currentY + textHeight + 2);
-            // Move Y down to accommodate multiple lines
-            // But for simplicy in this layout, we just let it flow. Amount is on top line usually.
+        // Description text
+        doc.fillColor(BLACK)
+            .font('Helvetica')
+            .fontSize(9)
+            .text(descriptionText, colDescX + 8, tableY + 8, {
+                width: colDescWidth - 16,
+                lineBreak: true
+            });
+
+        // Period sub-text
+        if (periodText) {
+            doc.fontSize(7)
+                .fillColor(MEDIUM_GRAY)
+                .text(periodText, colDescX + 8, tableY + descLines + 10, {
+                    width: colDescWidth - 16
+                });
         }
 
         // Amount
-        doc.fontSize(9).font('Helvetica-Bold').fillColor('black').text(Number(receipt.amount).toFixed(2), amountX, currentY, { width: amountWidth, align: 'right' });
+        doc.font('Helvetica')
+            .fontSize(10)
+            .fillColor(BLACK)
+            .text(
+                Number(receipt.amount).toFixed(2),
+                colAmountX + 8,
+                tableY + 8,
+                {
+                    width: colAmountWidth - 16,
+                    align: 'right'
+                }
+            );
 
-        // Calculate bottom of row roughly
-        const descHeight = doc.heightOfString(receipt.description, { width: 240 });
-        const rowBottom = currentY + descHeight + 15; // Padding
-
-        // Bottom Divider
-        doc.moveTo(startX, rowBottom).lineTo(endX, rowBottom).strokeColor('#cbd5e1').stroke();
+        tableY += detailRowHeight;
 
         // Total Row
-        const totalTop = rowBottom;
-        doc.rect(startX, totalTop, contentWidth, 25).fill('#f8fafc');
-        doc.fillColor('black').fontSize(9).font('Helvetica-Bold');
-        doc.text('Total', descX, totalTop + 8);
-        doc.text(`Rs. ${Number(receipt.amount).toFixed(2)}`, amountX, totalTop + 8, { width: amountWidth, align: 'right' });
+        doc.rect(MARGIN, tableY, CONTENT_WIDTH, rowHeight)
+            .lineWidth(1)
+            .strokeColor(BLACK)
+            .fillAndStroke('#f0f0f0', BLACK);
 
-        // Outer Border
-        doc.rect(startX, tableTop, contentWidth, (totalTop + 25) - tableTop).strokeColor('#cbd5e1').stroke();
+        // Vertical line
+        doc.strokeColor(BLACK)
+            .moveTo(colAmountX, tableY)
+            .lineTo(colAmountX, tableY + rowHeight)
+            .stroke();
 
-        // Footer
-        const footerY = totalTop + 60;
-        doc.fontSize(9).fillColor('#334155').font('Helvetica-Bold');
-        doc.text('Regards,', startX, footerY);
-        doc.text('VKJ', startX, footerY + 12);
+        doc.font('Helvetica-Bold')
+            .fontSize(10)
+            .fillColor(BLACK)
+            .text('Total Amount', colDescX + 8, tableY + 6, {
+                width: colDescWidth - 16,
+                align: 'left'
+            })
+            .text(
+                `Rs. ${Number(receipt.amount).toFixed(2)}`,
+                colAmountX + 8,
+                tableY + 6,
+                {
+                    width: colAmountWidth - 16,
+                    align: 'right'
+                }
+            );
 
-        // Optional: Timestamp or generated by
-        doc.fontSize(6).fillColor('#94a3b8').font('Helvetica');
-        doc.text(`Generated on ${new Date().toLocaleString()}`, startX, 550, { align: 'center', width: contentWidth });
+        y = tableY + rowHeight + 30;
+
+        // ==================== FOOTER ====================
+
+        // Signature line
+        const sigLineY = 500;
+        const sigLineWidth = 100;
+        const sigLineX = PAGE_WIDTH - MARGIN - sigLineWidth;
+
+        doc.fontSize(7)
+            .fillColor(MEDIUM_GRAY)
+            .font('Helvetica')
+            .text('Authorized Signature', sigLineX, sigLineY, {
+                width: sigLineWidth,
+                align: 'center'
+            });
+
+        doc.lineWidth(0.5)
+            .moveTo(sigLineX, sigLineY + 25)
+            .lineTo(sigLineX + sigLineWidth, sigLineY + 25)
+            .strokeColor(BORDER_GRAY)
+            .stroke();
+
+        // Bottom separator
+        const footerLineY = 530;
+        doc.lineWidth(0.5)
+            .moveTo(MARGIN, footerLineY)
+            .lineTo(PAGE_WIDTH - MARGIN, footerLineY)
+            .strokeColor(BORDER_GRAY)
+            .stroke();
+
+        // Generated timestamp
+        doc.fontSize(6)
+            .fillColor(LIGHT_GRAY)
+            .text(
+                `Generated on ${new Date().toLocaleString('en-GB', {
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: true
+                })}`,
+                MARGIN,
+                footerLineY + 8,
+                {
+                    width: CONTENT_WIDTH,
+                    align: 'center'
+                }
+            );
 
         doc.end();
 
