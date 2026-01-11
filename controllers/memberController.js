@@ -14,16 +14,38 @@ const getMembers = async (req, res) => {
 
         const query = {};
 
+        const andConditions = [];
+
         if (req.query.family) query.family = req.query.family;
         if (req.query.house) query.house = req.query.house;
 
+        if (req.query.frequency && req.query.frequency !== 'ALL') {
+            if (req.query.frequency === 'None') {
+                andConditions.push({
+                    $or: [
+                        { 'subscription.frequency': 'None' },
+                        { 'subscription.frequency': { $exists: false } }
+                    ]
+                });
+            } else {
+                andConditions.push({ 'subscription.frequency': req.query.frequency });
+            }
+        }
+
         if (search) {
             const searchRegex = new RegExp(search, 'i');
-            query.$or = [
-                { name: searchRegex },
-                { customId: searchRegex },
-                { mobile: searchRegex }
-            ];
+            andConditions.push({
+                $or: [
+                    { name: searchRegex },
+                    { customId: searchRegex },
+                    { mobile: searchRegex },
+                    { place: searchRegex }
+                ]
+            });
+        }
+
+        if (andConditions.length > 0) {
+            query.$and = andConditions;
         }
 
         const members = await Member.find(query)
