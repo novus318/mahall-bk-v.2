@@ -33,8 +33,10 @@ import paymentRoutes from './routes/paymentRoutes.js';
 import receiptRoutes from './routes/receiptRoutes.js';
 import whatsappRoutes from './routes/whatsappRoutes.js';
 import collectionRoutes from './routes/collectionRoutes.js';
+import dashboardRoutes from './routes/dashboardRoutes.js';
 
 app.use('/api/auth', authRoutes);
+app.use('/api/dashboard', dashboardRoutes); // Dashboard Stats
 app.use('/api/whatsapp', whatsappRoutes); // Moved up to valid global auth interception
 app.use('/api', mahallRoutes);
 app.use('/api/users', userRoutes);
@@ -52,4 +54,5 @@ const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+    // Restart trigger for date fix and deep linking
 });

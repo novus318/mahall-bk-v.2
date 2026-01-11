@@ -6,7 +6,9 @@ import {
     updateStaff,
     giveAdvance,
     generatePayslip,
-    markPayslipPaid
+    markPayslipPaid,
+    initiatePayslipRejection,
+    confirmPayslipRejection
 } from '../controllers/staffController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
@@ -28,5 +30,11 @@ router.route('/:id/payslips')
 
 router.route('/:id/payslips/:payslipId/pay')
     .put(protect, markPayslipPaid);
+
+router.route('/:id/payslips/:payslipId/reject/initiate')
+    .post(protect, initiatePayslipRejection);
+
+router.route('/:id/payslips/:payslipId/reject/confirm')
+    .post(protect, confirmPayslipRejection);
 
 export default router;

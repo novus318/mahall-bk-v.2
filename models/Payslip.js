@@ -44,6 +44,12 @@ const payslipSchema = new mongoose.Schema({
     generatedDate: {
         type: Date,
         default: Date.now
+    },
+    rejectionOtp: {
+        type: String
+    },
+    rejectionOtpExpires: {
+        type: Date
     }
 }, {
     timestamps: true

@@ -2,6 +2,8 @@ import Contract from '../models/Contract.js';
 import Room from '../models/Room.js';
 import Payment from '../models/Payment.js';
 import RentDue from '../models/RentDue.js';
+import Account from '../models/Account.js';
+import AccountTransaction from '../models/AccountTransaction.js';
 
 // ... (Existing Imports)
 
@@ -208,8 +210,8 @@ const generateRent = async (req, res) => {
 
 const payRent = async (req, res) => {
     try {
-        const { amount, date, notes } = req.body;
-        const rentDue = await RentDue.findById(req.params.rentId);
+        const { amount, date, notes, accountId } = req.body;
+        const rentDue = await RentDue.findById(req.params.rentId).populate('contract'); // Populate contract for linking
 
         if (!rentDue) return res.status(404).json({ message: 'Rent record not found' });
 
@@ -220,16 +222,53 @@ const payRent = async (req, res) => {
             return res.status(400).json({ message: `Payment exceeds pending balance of ₹${balance}` });
         }
 
+        // Logic to preserve current time if date is today or just merge provided date with current time components
+        // Actually, user standard practice: if they pick a date, usually they mean "that day".
+        // BUT user asked: "time should be taken current time"
+        // So we take the Provided Date (Year, Month, Day) and Current Time (Hours, Minutes, Seconds)
+
+        let paymentDate = new Date();
+        if (date) {
+            const providedDate = new Date(date);
+            paymentDate.setFullYear(providedDate.getFullYear());
+            paymentDate.setMonth(providedDate.getMonth());
+            paymentDate.setDate(providedDate.getDate());
+            // Hours/Minutes/Seconds remain from 'new Date()' (now)
+        }
+
+        // --- Account Integration Start ---
+        if (accountId) {
+            // 1. Validate Account
+            const account = await Account.findById(accountId);
+            if (!account) return res.status(404).json({ message: 'Selected Account not found' });
+
+            // 2. Update Balance (Income - Credit)
+            account.balance += paymentAmount;
+            await account.save();
+
+            // 3. Create Account Transaction
+            await AccountTransaction.create({
+                account: account._id,
+                contract: rentDue.contract._id, // Link to Contract/Tenant
+                type: 'INCOME',
+                amount: paymentAmount,
+                balanceAfter: account.balance,
+                date: paymentDate,
+                description: `Rent Payment - ${rentDue.monthYear} (${rentDue.contract.tenant.name})`
+            });
+        }
+        // --- Account Integration End ---
+
         rentDue.transactions.push({
             amount: paymentAmount,
-            date: date || Date.now(),
+            date: paymentDate,
             notes: notes
         });
 
         const newCollected = rentDue.collectedAmount + paymentAmount;
         rentDue.collectedAmount = newCollected;
-        rentDue.paymentDate = date || Date.now(); // Update last payment date
-        rentDue.notes = notes; // Update latest note
+        rentDue.paymentDate = paymentDate;
+        rentDue.notes = notes;
 
         if (newCollected >= rentDue.amount) {
             rentDue.status = 'PAID';
