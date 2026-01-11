@@ -7,13 +7,15 @@ import {
     initiateRejection,
     confirmRejection,
     getCollectionReceipt,
-    downloadCollectionReceiptPdf
+    downloadCollectionReceiptPdf,
+    getCollectionPeriods
 } from '../controllers/collectionController.js';
 
 const router = express.Router();
 
 router.put('/:type/:id/subscription', updateSubscription);
 router.get('/dues', getDues);
+router.get('/periods', getCollectionPeriods);
 router.get('/receipts/:id', getCollectionReceipt);
 router.get('/receipts/:id/pdf', downloadCollectionReceiptPdf);
 router.post('/generate/single', generateSingleDue);

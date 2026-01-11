@@ -59,15 +59,23 @@ const updateSubscription = async (req, res) => {
 // @access  Public/Private
 const getDues = async (req, res) => {
     try {
-        const { entityId, status, period, frequency } = req.query;
+        const { entityId, entityType, status, period, frequency } = req.query;
         const query = {};
 
         if (entityId) query.entityId = entityId;
+        if (entityType) query.entityType = entityType;
         if (status) query.status = status;
         if (period) query.period = period;
         if (frequency) query.frequency = frequency;
 
-        const dues = await CollectionDue.find(query).sort({ createdAt: -1 });
+        const dues = await CollectionDue.find(query)
+            .populate({
+                path: 'entityId',
+                select: 'name customId houseId',
+                populate: { path: 'houseId', select: 'customId', strictPopulate: false }
+            })
+            .sort({ createdAt: -1 });
+
         res.json({ status: true, data: dues });
     } catch (error) {
         res.status(500).json({ status: false, message: error.message });
@@ -528,4 +536,34 @@ const downloadCollectionReceiptPdf = async (req, res) => {
     }
 };
 
-export { updateSubscription, getDues, generateSingleDue, payDue, initiateRejection, confirmRejection, getCollectionReceipt, downloadCollectionReceiptPdf };
+// @desc    Get Distinct Periods
+// @route   GET /api/collections/periods
+// @access  Public/Private
+const getCollectionPeriods = async (req, res) => {
+    try {
+        const periods = await CollectionDue.distinct('period');
+        // Sort periods logic (MM-YYYY or YYYY)
+        // Simple alpha sort works for YYYY, but MM-YYYY needs customized sorting if accurate chronological order is needed.
+        // For now, simple sort or descending.
+
+        // Let's sort explicitly if standard date format
+        // But since format is mixed, regular sort might suffice or customized.
+        periods.sort().reverse();
+
+        res.json({ status: true, data: periods });
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+export {
+    updateSubscription,
+    getDues,
+    generateSingleDue,
+    payDue,
+    initiateRejection,
+    confirmRejection,
+    getCollectionReceipt,
+    downloadCollectionReceiptPdf,
+    getCollectionPeriods
+};

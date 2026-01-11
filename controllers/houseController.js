@@ -16,16 +16,37 @@ const getHouses = async (req, res) => {
         const search = req.query.search || '';
 
         const query = {};
+        const andConditions = [];
+
         if (req.query.family) {
-            query.family = req.query.family;
+            andConditions.push({ family: req.query.family });
+        }
+
+        if (req.query.frequency && req.query.frequency !== 'ALL') {
+            if (req.query.frequency === 'None') {
+                andConditions.push({
+                    $or: [
+                        { 'subscription.frequency': 'None' },
+                        { 'subscription.frequency': { $exists: false } }
+                    ]
+                });
+            } else {
+                andConditions.push({ 'subscription.frequency': req.query.frequency });
+            }
         }
 
         if (search) {
-            query.$or = [
-                { name: { $regex: search, $options: 'i' } },
-                { customId: { $regex: search, $options: 'i' } },
-                { address: { $regex: search, $options: 'i' } }
-            ];
+            andConditions.push({
+                $or: [
+                    { name: { $regex: search, $options: 'i' } },
+                    { customId: { $regex: search, $options: 'i' } },
+                    { address: { $regex: search, $options: 'i' } }
+                ]
+            });
+        }
+
+        if (andConditions.length > 0) {
+            query.$and = andConditions;
         }
 
         const count = await House.countDocuments(query);
