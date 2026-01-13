@@ -74,6 +74,11 @@ const getDues = async (req, res) => {
                 select: 'name customId houseId',
                 populate: { path: 'houseId', select: 'customId', strictPopulate: false }
             })
+            .populate({
+                path: 'transactions.receiptId',
+                select: 'account receiptNo',
+                populate: { path: 'account', select: 'name _id type' }
+            })
             .sort({ createdAt: -1 });
 
         res.json({ status: true, data: dues });
@@ -465,10 +470,14 @@ const downloadCollectionReceiptPdf = async (req, res) => {
 
         // ==================== RECEIPT TITLE ====================
 
+        // Dynamic Title based on Payment Type
+        const isPartial = receipt.dueId?.status === 'PARTIAL';
+        const title = isPartial ? 'PARTIAL PAYMENT RECEIPT' : 'COLLECTION RECEIPT';
+
         doc.font('Helvetica-Bold')
             .fontSize(12)
             .fillColor(BLACK)
-            .text('COLLECTION RECEIPT', MARGIN, y, {
+            .text(title, MARGIN, y, {
                 width: CONTENT_WIDTH,
                 align: 'center'
             });
@@ -630,6 +639,45 @@ const downloadCollectionReceiptPdf = async (req, res) => {
             );
 
         tableY += detailRowHeight;
+
+        // --- PARTIAL PAYMENT DETAILS & BALANCE ---
+        if (receipt.dueId && (receipt.dueId.frequency === 'Yearly' || receipt.dueId.status === 'PARTIAL')) {
+            const totalAmount = receipt.dueId.amount;
+            const paidTotal = receipt.dueId.paidAmount; // This includes THIS receipt usually, check backend logic
+            const balance = totalAmount - paidTotal;
+
+            // Only show if there is useful info (e.g. balance > 0 or it was a partial payment)
+
+            // Total Due Row (Plain)
+            doc.rect(MARGIN, tableY, CONTENT_WIDTH, rowHeight)
+                .strokeColor(BLACK)
+                .stroke();
+
+            // Vertical line
+            doc.moveTo(colAmountX, tableY).lineTo(colAmountX, tableY + rowHeight).stroke();
+
+            doc.font('Helvetica').fontSize(9).fillColor(MEDIUM_GRAY)
+                .text('Total Due Amount', colDescX + 20, tableY + 6)
+                .text(`Rs. ${totalAmount.toFixed(2)}`, colAmountX + 8, tableY + 6, { align: 'right', width: colAmountWidth - 16 });
+
+            tableY += rowHeight;
+
+            // Balance Row (Bold if balance exists)
+            if (balance >= 0) {
+                doc.rect(MARGIN, tableY, CONTENT_WIDTH, rowHeight)
+                    .strokeColor(BLACK)
+                    .stroke();
+                // Vertical line
+                doc.moveTo(colAmountX, tableY).lineTo(colAmountX, tableY + rowHeight).stroke();
+
+                doc.font('Helvetica-Bold').fontSize(9).fillColor(BLACK)
+                    .text('Balance Due', colDescX + 20, tableY + 6)
+                    .text(`Rs. ${balance.toFixed(2)}`, colAmountX + 8, tableY + 6, { align: 'right', width: colAmountWidth - 16 });
+
+                tableY += rowHeight;
+            }
+        }
+        // -----------------------------------------
 
         // Total Row
         doc.rect(MARGIN, tableY, CONTENT_WIDTH, rowHeight)
