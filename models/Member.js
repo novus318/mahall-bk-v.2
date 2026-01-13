@@ -12,6 +12,11 @@ const memberSchema = mongoose.Schema({
         minLength: 8,
         maxLength: 8
     },
+    status: {
+        type: String,
+        enum: ['Active', 'Moved Out', 'Deceased', 'Slided'],
+        default: 'Active'
+    },
     gender: {
         type: String,
         enum: ['Male', 'Female', 'Other'],

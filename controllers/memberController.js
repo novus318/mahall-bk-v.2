@@ -596,4 +596,31 @@ const getMemberById = async (req, res) => {
     }
 };
 
-export { getMembers, getMemberById, createMember, updateMember, deleteMember, bulkImportMembers };
+// @desc    Move out / Disable a member
+// @route   PUT /api/members/:id/move-out
+// @access  Private (Admin/Staff)
+const moveOutMember = async (req, res) => {
+    try {
+        const member = await Member.findById(req.params.id);
+
+        if (member) {
+            member.status = 'Moved Out';
+            // Clear subscription
+            if (member.subscription) {
+                member.subscription.frequency = 'None';
+                member.subscription.amount = 0;
+            } else {
+                member.subscription = { frequency: 'None', amount: 0 };
+            }
+
+            const updatedMember = await member.save();
+            res.json({ status: true, message: "Member moved out successfully", data: updatedMember });
+        } else {
+            res.status(404).json({ status: false, message: 'Member not found' });
+        }
+    } catch (error) {
+        res.status(400).json({ status: false, message: error.message });
+    }
+};
+
+export { getMembers, getMemberById, createMember, updateMember, deleteMember, bulkImportMembers, moveOutMember };
