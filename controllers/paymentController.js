@@ -18,8 +18,38 @@ export const getPaymentCategories = async (req, res) => {
 export const createPaymentCategory = async (req, res) => {
     try {
         const { name, description } = req.body;
+
+        // Check if category exists (even inactive)
+        const existingCategory = await PaymentCategory.findOne({ name });
+
+        if (existingCategory) {
+            if (existingCategory.status === 'INACTIVE') {
+                // Reactivate
+                existingCategory.status = 'ACTIVE';
+                existingCategory.description = description || existingCategory.description;
+                await existingCategory.save();
+                return res.status(200).json({ status: true, data: existingCategory, message: 'Category restored' });
+            } else {
+                return res.status(400).json({ status: false, message: 'Category already exists' });
+            }
+        }
+
         const category = await PaymentCategory.create({ name, description });
         res.status(201).json({ status: true, data: category });
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+export const updatePaymentCategory = async (req, res) => {
+    try {
+        const { name, description } = req.body;
+        const category = await PaymentCategory.findByIdAndUpdate(
+            req.params.id,
+            { name, description },
+            { new: true }
+        );
+        res.json({ status: true, data: category });
     } catch (error) {
         res.status(500).json({ status: false, message: error.message });
     }
@@ -102,9 +132,8 @@ export const createPayment = async (req, res) => {
             return res.status(404).json({ status: false, message: 'Account not found' });
         }
 
-        if (account.balance < totalAmount) {
-            return res.status(400).json({ status: false, message: 'Insufficient funds in selected account' });
-        }
+        // REMOVED: Balance check to allow overdrafts
+        // if (account.balance < totalAmount) { ... }
 
         // 3. Generate Receipt & Update Settings
         let settings = await SystemSettings.findOne();
@@ -225,12 +254,12 @@ export const updatePayment = async (req, res) => {
             // Create date object from input (usually 00:00:00)
             const inputDate = new Date(date);
 
-            // Preserve original time components to prevent re-ordering issues
-            const originalDate = new Date(payment.date);
-            inputDate.setHours(originalDate.getHours());
-            inputDate.setMinutes(originalDate.getMinutes());
-            inputDate.setSeconds(originalDate.getSeconds());
-            inputDate.setMilliseconds(originalDate.getMilliseconds());
+            // Use current time for the effective date as per user request
+            const now = new Date();
+            inputDate.setHours(now.getHours());
+            inputDate.setMinutes(now.getMinutes());
+            inputDate.setSeconds(now.getSeconds());
+            inputDate.setMilliseconds(now.getMilliseconds());
 
             newDate = inputDate;
         }
@@ -267,10 +296,8 @@ export const updatePayment = async (req, res) => {
 
             // B. Apply to New Account
             const newAccount = await Account.findById(accountId);
-            // Check balance for the NEW amount (since old is refunded to old account)
-            if (newAccount.balance < newTotalAmount) {
-                return res.status(400).json({ status: false, message: `Insufficient funds in new account` });
-            }
+            // REMOVED: Check balance for the NEW amount (since old is refunded to old account)
+            // if (newAccount.balance < newTotalAmount) { ... }
             newAccount.balance -= newTotalAmount;
             await newAccount.save();
 

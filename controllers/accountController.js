@@ -180,8 +180,7 @@ export const getAccountTransactions = async (req, res) => {
 
         const transactions = await AccountTransaction.find({ account: req.params.id })
             .populate('relatedAccount', 'name')
-
-
+            .populate('payment', 'receiptNo _id')
             .populate('receipt', 'receiptNo _id')
             .populate('staff', '_id')
             .populate('contract', '_id')
@@ -226,8 +225,7 @@ export const getAllTransactions = async (req, res) => {
         const transactions = await AccountTransaction.find(query)
             .populate('account', 'name type')
             .populate('relatedAccount', 'name')
-
-
+            .populate('payment', 'receiptNo _id')
             .populate('receipt', 'receiptNo _id')
             .populate('staff', '_id')
             .populate('contract', '_id')
