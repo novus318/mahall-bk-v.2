@@ -38,6 +38,7 @@ import dashboardRoutes from './routes/dashboardRoutes.js';
 app.use('/api/auth', authRoutes);
 app.use('/api/dashboard', dashboardRoutes); // Dashboard Stats
 app.use('/api/whatsapp', whatsappRoutes); // Moved up to valid global auth interception
+app.use('/api/collections', collectionRoutes); // Public access needed for receipts
 app.use('/api', mahallRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/settings', settingsRoutes);
@@ -48,7 +49,6 @@ app.use('/api/buildings', buildingRoutes);
 app.use('/api/contracts', contractRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/receipts', receiptRoutes);
-app.use('/api/collections', collectionRoutes);
 
 const PORT = process.env.PORT || 5000;
 

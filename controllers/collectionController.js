@@ -135,12 +135,10 @@ const generateSingleDue = async (req, res) => {
 // @route   POST /api/collections/pay
 // @access  Private
 const payDue = async (req, res) => {
-    const session = await mongoose.startSession();
-    session.startTransaction();
     try {
         const { dueId, amount, date, accountId, paymentMethod } = req.body;
 
-        const due = await CollectionDue.findById(dueId).session(session);
+        const due = await CollectionDue.findById(dueId);
         if (!due) throw new Error('Due record not found');
 
         const remaining = due.amount - due.paidAmount;
@@ -150,10 +148,9 @@ const payDue = async (req, res) => {
 
         // 1. Create Receipt
         // Get Receipt No settings
-        let settings = await SystemSettings.findOne().session(session);
+        let settings = await SystemSettings.findOne();
         if (!settings) {
-            settings = await SystemSettings.create([{}], { session });
-            settings = settings[0];
+            settings = await SystemSettings.create({});
         }
 
         const prefix = settings.collectionSettings?.receiptPrefix || 'MC-';
@@ -163,14 +160,14 @@ const payDue = async (req, res) => {
         // Get Entity Name for 'Payer'
         let payerInfo = { name: "Unknown" };
         if (due.entityType === 'House') {
-            const h = await House.findById(due.entityId).session(session);
+            const h = await House.findById(due.entityId);
             payerInfo = {
                 name: h ? `${h.name} (${h.customId})` : "House",
                 entityType: 'House',
                 entityId: due.entityId
             };
         } else {
-            const m = await Member.findById(due.entityId).session(session);
+            const m = await Member.findById(due.entityId);
             payerInfo = {
                 name: m ? `${m.name} (${m.customId})` : "Member",
                 entityType: 'Member',
@@ -178,7 +175,7 @@ const payDue = async (req, res) => {
             };
         }
 
-        const receipt = await CollectionReceipt.create([{
+        const receipt = await CollectionReceipt.create({
             receiptNo,
             amount,
             date: date || new Date(),
@@ -187,20 +184,20 @@ const payDue = async (req, res) => {
             payer: payerInfo,
             description: `Payment for ${due.period} (${due.frequency})`,
             mode: paymentMethod || 'CASH'
-        }], { session });
+        });
 
         // 2. Update System Settings No
         await SystemSettings.updateOne(
             { _id: settings._id },
             { $inc: { 'collectionSettings.receiptCurrentNumber': 1 } }
-        ).session(session);
+        );
 
         // 3. Update Due
         due.paidAmount += Number(amount);
         due.transactions.push({
             date: date || new Date(),
             amount,
-            receiptId: receipt[0]._id,
+            receiptId: receipt._id,
             notes: paymentMethod
         });
 
@@ -209,15 +206,15 @@ const payDue = async (req, res) => {
         } else {
             due.status = 'PARTIAL';
         }
-        await due.save({ session });
+        await due.save();
 
         // 4. Update Account Balance & Create Transaction
-        const account = await Account.findById(accountId).session(session);
+        const account = await Account.findById(accountId);
         if (account) {
             account.balance += Number(amount);
-            await account.save({ session });
+            await account.save();
 
-            await AccountTransaction.create([{
+            await AccountTransaction.create({
                 account: account._id,
                 type: 'INCOME',
                 amount: Number(amount),
@@ -225,18 +222,15 @@ const payDue = async (req, res) => {
                 date: date || new Date(),
                 description: `Collection from ${payerInfo.name} - ${due.period} (${due.frequency})`,
                 payment: null, // or link if needed
-                collectionReceipt: receipt[0]._id
-            }], { session });
+                collectionReceipt: receipt._id
+            });
         }
 
-        await session.commitTransaction();
-        res.json({ status: true, message: 'Payment recorded', data: { receipt: receipt[0], due } });
+        res.json({ status: true, message: 'Payment recorded', data: { receipt, due } });
 
     } catch (error) {
-        await session.abortTransaction();
+        console.error(error);
         res.status(500).json({ status: false, message: error.message });
-    } finally {
-        session.endSession();
     }
 };
 
