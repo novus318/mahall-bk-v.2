@@ -746,16 +746,21 @@ const getCollectionPeriods = async (req, res) => {
 // @access  Private/System
 const generateBulkDues = async (req, res) => {
     try {
-        const { entityType, period: specificPeriod } = req.body;
+        const { entityType, period: specificPeriod, frequency = 'Monthly' } = req.body;
 
-        // Determine Period (Default: Last Month)
+        // Determine Period
         let targetPeriod = specificPeriod;
         if (!targetPeriod) {
             const d = new Date();
-            d.setMonth(d.getMonth() - 1); // User req: "generate due of last month"
-            const month = (d.getMonth() + 1).toString().padStart(2, '0');
-            const year = d.getFullYear();
-            targetPeriod = `${month}-${year}`;
+            if (frequency === 'Yearly') {
+                targetPeriod = d.getFullYear().toString();
+            } else {
+                // Monthly: Default to Last Month
+                d.setMonth(d.getMonth() - 1); // User req: "generate due of last month"
+                const month = (d.getMonth() + 1).toString().padStart(2, '0');
+                const year = d.getFullYear();
+                targetPeriod = `${month}-${year}`;
+            }
         }
 
         let generatedCount = 0;
@@ -771,8 +776,8 @@ const generateBulkDues = async (req, res) => {
         for (const type of typesToProcess) {
             const Model = type === 'House' ? House : Member;
 
-            // 1. Find all Monthly subscribers
-            const entities = await Model.find({ 'subscription.frequency': 'Monthly' }).select('_id subscription');
+            // 1. Find subscribers by Frequency
+            const entities = await Model.find({ 'subscription.frequency': frequency }).select('_id subscription');
 
             if (entities.length === 0) continue;
 
@@ -794,7 +799,7 @@ const generateBulkDues = async (req, res) => {
                         entityType: type,
                         entityId: entity._id,
                         period: targetPeriod,
-                        frequency: 'Monthly',
+                        frequency: frequency,
                         amount: entity.subscription.amount,
                         status: 'PENDING'
                     });
@@ -812,7 +817,7 @@ const generateBulkDues = async (req, res) => {
 
         res.json({
             status: true,
-            message: `Bulk generation complete for ${targetPeriod}`,
+            message: `Bulk generation complete for ${targetPeriod} (${frequency})`,
             data: { generated: generatedCount, skipped: skippedCount, period: targetPeriod }
         });
 
