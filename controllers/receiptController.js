@@ -18,8 +18,38 @@ export const getReceiptCategories = async (req, res) => {
 export const createReceiptCategory = async (req, res) => {
     try {
         const { name, description } = req.body;
+
+        // Check if category exists (even inactive)
+        const existingCategory = await ReceiptCategory.findOne({ name });
+
+        if (existingCategory) {
+            if (existingCategory.status === 'INACTIVE') {
+                // Reactivate
+                existingCategory.status = 'ACTIVE';
+                existingCategory.description = description || existingCategory.description;
+                await existingCategory.save();
+                return res.status(200).json({ status: true, data: existingCategory, message: 'Category restored' });
+            } else {
+                return res.status(400).json({ status: false, message: 'Category already exists' });
+            }
+        }
+
         const category = await ReceiptCategory.create({ name, description });
         res.status(201).json({ status: true, data: category });
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+export const updateReceiptCategory = async (req, res) => {
+    try {
+        const { name, description } = req.body;
+        const category = await ReceiptCategory.findByIdAndUpdate(
+            req.params.id,
+            { name, description },
+            { new: true }
+        );
+        res.json({ status: true, data: category });
     } catch (error) {
         res.status(500).json({ status: false, message: error.message });
     }
@@ -204,12 +234,16 @@ export const updateReceipt = async (req, res) => {
         // Robust Date Parsing with Time Preservation
         let newDate = receipt.date;
         if (date) {
+            // Create date object from input (usually 00:00:00)
             const inputDate = new Date(date);
-            const originalDate = new Date(receipt.date);
-            inputDate.setHours(originalDate.getHours());
-            inputDate.setMinutes(originalDate.getMinutes());
-            inputDate.setSeconds(originalDate.getSeconds());
-            inputDate.setMilliseconds(originalDate.getMilliseconds());
+
+            // Use current time for the effective date
+            const now = new Date();
+            inputDate.setHours(now.getHours());
+            inputDate.setMinutes(now.getMinutes());
+            inputDate.setSeconds(now.getSeconds());
+            inputDate.setMilliseconds(now.getMilliseconds());
+
             newDate = inputDate;
         }
 

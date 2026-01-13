@@ -7,14 +7,15 @@ import {
     createReceipt,
     getReceipts,
     updateReceipt,
-    getReceiptById
+    getReceiptById,
+    updateReceiptCategory
 } from '../controllers/receiptController.js';
 
 const router = express.Router();
 
 // Categories
 router.route('/categories').get(protect, getReceiptCategories).post(protect, createReceiptCategory);
-router.route('/categories/:id').delete(protect, deleteReceiptCategory);
+router.route('/categories/:id').put(protect, updateReceiptCategory).delete(protect, deleteReceiptCategory);
 
 // Receipts
 router.route('/')
