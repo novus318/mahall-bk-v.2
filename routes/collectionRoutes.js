@@ -3,6 +3,7 @@ import {
     updateSubscription,
     getDues,
     generateSingleDue,
+    generateBulkDues,
     payDue,
     initiateRejection,
     confirmRejection,
@@ -19,6 +20,7 @@ router.get('/periods', getCollectionPeriods);
 router.get('/receipts/:id', getCollectionReceipt);
 router.get('/receipts/:id/pdf', downloadCollectionReceiptPdf);
 router.post('/generate/single', generateSingleDue);
+router.post('/generate/bulk', generateBulkDues);
 router.post('/pay', payDue);
 router.post('/reject/initiate', initiateRejection);
 router.post('/reject/confirm', confirmRejection);

@@ -83,4 +83,47 @@ const updatePaymentSettings = async (req, res) => {
     }
 };
 
-export { getAlertContacts, updateAlertContacts, getPaymentSettings, updatePaymentSettings };
+// @desc    Get Collection Settings
+// @route   GET /api/settings/collections
+// @access  Private/Admin
+const getCollectionSettings = async (req, res) => {
+    try {
+        let settings = await SystemSettings.findOne();
+        if (!settings) settings = await SystemSettings.create({});
+        res.json({
+            status: true,
+            data: settings.collectionSettings || {}
+        });
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+// @desc    Update Collection Settings
+// @route   PUT /api/settings/collections
+// @access  Private/Admin
+const updateCollectionSettings = async (req, res) => {
+    try {
+        const { receiptPrefix, receiptCurrentNumber, automationEnabled, houseCronDay, memberCronDay, houseCronTime, memberCronTime } = req.body;
+
+        let settings = await SystemSettings.findOne();
+        if (!settings) settings = new SystemSettings({});
+
+        if (!settings.collectionSettings) settings.collectionSettings = {};
+
+        if (receiptPrefix !== undefined) settings.collectionSettings.receiptPrefix = receiptPrefix;
+        if (receiptCurrentNumber !== undefined) settings.collectionSettings.receiptCurrentNumber = receiptCurrentNumber;
+        if (automationEnabled !== undefined) settings.collectionSettings.automationEnabled = automationEnabled;
+        if (houseCronDay !== undefined) settings.collectionSettings.houseCronDay = houseCronDay;
+        if (memberCronDay !== undefined) settings.collectionSettings.memberCronDay = memberCronDay;
+        if (houseCronTime !== undefined) settings.collectionSettings.houseCronTime = houseCronTime;
+        if (memberCronTime !== undefined) settings.collectionSettings.memberCronTime = memberCronTime;
+
+        await settings.save();
+        res.json({ status: true, message: 'Collection settings updated', data: settings.collectionSettings });
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+export { getAlertContacts, updateAlertContacts, getPaymentSettings, updatePaymentSettings, getCollectionSettings, updateCollectionSettings };

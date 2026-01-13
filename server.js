@@ -52,7 +52,10 @@ app.use('/api/collections', collectionRoutes);
 
 const PORT = process.env.PORT || 5000;
 
+import startScheduler from './jobs/collectionScheduler.js';
+
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+    startScheduler();
     // Restart trigger for date fix and deep linking
 });

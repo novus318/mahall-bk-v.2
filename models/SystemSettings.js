@@ -18,7 +18,13 @@ const systemSettingsSchema = mongoose.Schema({
     collectionSettings: {
         receiptPrefix: { type: String, default: 'MC-' }, // Mahall Collection
         receiptCurrentNumber: { type: Number, default: 1 },
-        receiptSequenceLimit: { type: Number, default: 999 }
+        receiptSequenceLimit: { type: Number, default: 999 },
+        // Automation Configuration
+        automationEnabled: { type: Boolean, default: false },
+        houseCronDay: { type: Number, default: 1 }, // Day of month (1-28)
+        houseCronTime: { type: String, default: '10:00' }, // HH:mm (24-hour)
+        memberCronDay: { type: Number, default: 1 },
+        memberCronTime: { type: String, default: '10:00' }
     }
 }, {
     timestamps: true

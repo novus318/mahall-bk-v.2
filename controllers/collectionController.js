@@ -747,6 +747,87 @@ const getCollectionPeriods = async (req, res) => {
     }
 };
 
+// @desc    Generate Dues in Bulk (Automation Trigger)
+// @route   POST /api/collections/generate/bulk
+// @access  Private/System
+const generateBulkDues = async (req, res) => {
+    try {
+        const { entityType, period: specificPeriod } = req.body;
+
+        // Determine Period (Default: Last Month)
+        let targetPeriod = specificPeriod;
+        if (!targetPeriod) {
+            const d = new Date();
+            d.setMonth(d.getMonth() - 1); // User req: "generate due of last month"
+            const month = (d.getMonth() + 1).toString().padStart(2, '0');
+            const year = d.getFullYear();
+            targetPeriod = `${month}-${year}`;
+        }
+
+        let generatedCount = 0;
+        let skippedCount = 0;
+        const typesToProcess = [];
+
+        if (!entityType || entityType === 'All') {
+            typesToProcess.push('House', 'Member');
+        } else {
+            typesToProcess.push(entityType);
+        }
+
+        for (const type of typesToProcess) {
+            const Model = type === 'House' ? House : Member;
+
+            // 1. Find all Monthly subscribers
+            const entities = await Model.find({ 'subscription.frequency': 'Monthly' }).select('_id subscription');
+
+            if (entities.length === 0) continue;
+
+            const entityIds = entities.map(e => e._id);
+
+            // 2. Find Existing
+            const existingDues = await CollectionDue.find({
+                entityId: { $in: entityIds },
+                period: targetPeriod
+            }).select('entityId');
+
+            const existingIdsSet = new Set(existingDues.map(d => d.entityId.toString()));
+
+            // 3. Prepare Batch
+            const duesToCreate = [];
+            entities.forEach(entity => {
+                if (!existingIdsSet.has(entity._id.toString()) && entity.subscription && entity.subscription.amount > 0) {
+                    duesToCreate.push({
+                        entityType: type,
+                        entityId: entity._id,
+                        period: targetPeriod,
+                        frequency: 'Monthly',
+                        amount: entity.subscription.amount,
+                        status: 'PENDING'
+                    });
+                } else {
+                    skippedCount++;
+                }
+            });
+
+            // 4. Bulk Insert
+            if (duesToCreate.length > 0) {
+                await CollectionDue.insertMany(duesToCreate);
+                generatedCount += duesToCreate.length;
+            }
+        }
+
+        res.json({
+            status: true,
+            message: `Bulk generation complete for ${targetPeriod}`,
+            data: { generated: generatedCount, skipped: skippedCount, period: targetPeriod }
+        });
+
+    } catch (error) {
+        console.error("Bulk Generation Error:", error);
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
 export {
     updateSubscription,
     getDues,
@@ -756,5 +837,6 @@ export {
     confirmRejection,
     getCollectionReceipt,
     downloadCollectionReceiptPdf,
-    getCollectionPeriods
+    getCollectionPeriods,
+    generateBulkDues
 };
