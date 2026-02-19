@@ -1,6 +1,6 @@
 import Member from '../models/Member.js';
 import House from '../models/House.js';
-import xlsx from 'xlsx';
+import ExcelJS from 'exceljs';
 
 // @desc    Get all members
 // @route   GET /api/members
@@ -371,10 +371,27 @@ const bulkImportMembers = async (req, res) => {
             return res.status(400).json({ status: false, message: 'Please upload an Excel file' });
         }
 
-        const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
-        const sheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[sheetName];
-        const data = xlsx.utils.sheet_to_json(sheet);
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.load(req.file.buffer);
+        const worksheet = workbook.getWorksheet(1);
+        
+        // Convert worksheet to array of objects (similar to xlsx.utils.sheet_to_json)
+        const data = [];
+        const headers = [];
+        worksheet.eachRow((row, rowNumber) => {
+            if (rowNumber === 1) {
+                row.eachCell((cell) => {
+                    headers.push(cell.value);
+                });
+            } else {
+                const rowData = {};
+                row.eachCell((cell, colNumber) => {
+                    const header = headers[colNumber - 1];
+                    rowData[header] = cell.value;
+                });
+                data.push(rowData);
+            }
+        });
 
         if (!data || data.length === 0) {
             return res.status(400).json({ status: false, message: 'Excel file is empty' });

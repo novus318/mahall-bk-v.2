@@ -1,6 +1,6 @@
 import Account from '../models/Account.js';
 import AccountTransaction from '../models/AccountTransaction.js';
-import XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import mongoose from 'mongoose';
 
 // @desc    Create new account
@@ -295,11 +295,20 @@ export const exportTransactions = async (req, res) => {
             };
         });
 
-        const wb = XLSX.utils.book_new();
-        const ws = XLSX.utils.json_to_sheet(data);
-        XLSX.utils.book_append_sheet(wb, ws, 'Transactions');
-
-        const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet('Transactions');
+        
+        // Add headers
+        if (data.length > 0) {
+            worksheet.columns = Object.keys(data[0]).map(key => ({ header: key, key: key }));
+        }
+        
+        // Add data rows
+        data.forEach(row => {
+            worksheet.addRow(row);
+        });
+        
+        const buffer = await workbook.xlsx.writeBuffer();
 
         res.setHeader('Content-Disposition', 'attachment; filename="transactions.xlsx"');
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
