@@ -33,11 +33,15 @@ import paymentRoutes from './routes/paymentRoutes.js';
 import receiptRoutes from './routes/receiptRoutes.js';
 import whatsappRoutes from './routes/whatsappRoutes.js';
 import collectionRoutes from './routes/collectionRoutes.js';
+import collectionRoutes from './routes/collectionRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
+import paymentGatewayRoutes from './routes/paymentGatewayRoutes.js';
+import paymentGatewayRoutes from './routes/paymentGatewayRoutes.js';
 
 app.use('/api/auth', authRoutes);
 app.use('/api/dashboard', dashboardRoutes); // Dashboard Stats
 app.use('/api/whatsapp', whatsappRoutes); // Moved up to valid global auth interception
+app.use('/api/payment-gateway', paymentGatewayRoutes);
 app.use('/api/collections', collectionRoutes); // Public access needed for receipts
 app.use('/api', mahallRoutes);
 app.use('/api/users', userRoutes);
