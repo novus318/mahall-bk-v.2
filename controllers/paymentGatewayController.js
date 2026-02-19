@@ -1,6 +1,8 @@
 import Razorpay from 'razorpay';
 import Receipt from '../models/Receipt.js';
+import ReceiptCategory from '../models/ReceiptCategory.js';
 import Account from '../models/Account.js';
+import AccountTransaction from '../models/AccountTransaction.js';
 import { validateWebhookSignature } from 'razorpay/dist/utils/razorpay-utils.js';
 // Initialize Razorpay
 const razorpay = new Razorpay({
@@ -68,6 +70,19 @@ export const handleWebhook = async (req, res) => {
                 return res.status(500).json({ message: 'Internal config error: No Primary Account' });
             }
 
+            // 1.5 Handle Category
+            const categoryName = notes.category || 'Donation'; // Default to Donation if not provided
+            let category = await ReceiptCategory.findOne({ name: { $regex: new RegExp(`^${categoryName}$`, 'i') } });
+
+            if (!category) {
+                category = new ReceiptCategory({
+                    name: categoryName,
+                    type: 'INCOME', // Receipt categories are usually income or expense types, but here likely just name
+                    description: 'Auto-created from Online Payment'
+                });
+                await category.save();
+            }
+
             // 2. Generate Receipt No (Simple logic or use existing helper if available)
             // Assuming simplified unique generation for now: "ONL-{timestamp}"
             const receiptNo = `ONL-${Date.now()}`;
@@ -78,6 +93,7 @@ export const handleWebhook = async (req, res) => {
                 date: new Date(),
                 amount,
                 type: 'INCOME',
+                category: category._id,
                 account: account._id,
                 payer: donorName,
                 payerContact: donorPhone,
@@ -93,6 +109,21 @@ export const handleWebhook = async (req, res) => {
             // 4. Update Account Balance
             account.balance += amount;
             await account.save();
+
+            // 5. Create Account Transaction
+            const transaction = new AccountTransaction({
+                account: account._id,
+                relatedAccount: null,
+                receipt: newReceipt._id, // Link to receipt
+                type: 'INCOME',
+                amount,
+                balanceAfter: account.balance,
+                date: newReceipt.date,
+                description: `Receipt ${receiptNo} from ${payer}`
+            });
+
+            await transaction.save();
+
 
             console.log(`Razorpay Receipt Created: ${receiptNo} for ₹${amount}`);
 
