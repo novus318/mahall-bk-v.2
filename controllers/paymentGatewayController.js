@@ -1,6 +1,7 @@
-import Razorpay, { validateWebhookSignature } from 'razorpay';
+import Razorpay from 'razorpay';
 import Receipt from '../models/Receipt.js';
 import Account from '../models/Account.js';
+import { validateWebhookSignature } from 'razorpay/dist/utils/razorpay-utils.js';
 // Initialize Razorpay
 const razorpay = new Razorpay({
     key_id: process.env.RAZORPAY_KEY_ID,
