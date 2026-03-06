@@ -31,6 +31,14 @@ const contractSchema = new Schema({
         type: Number,
         required: true
     },
+    depositCollected: {
+        type: Number,
+        default: 0
+    },
+    depositReturned: {
+        type: Number,
+        default: 0
+    },
     status: {
         type: String,
         enum: ['ACTIVE', 'EXPIRED', 'TERMINATED'],

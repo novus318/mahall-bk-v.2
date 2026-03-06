@@ -138,33 +138,94 @@ const updateContract = async (req, res) => {
 // @route   PUT /api/contracts/:id/terminate
 const terminateContract = async (req, res) => {
     try {
-        const { returnAmount, notes } = req.body;
+        const { returnAmount, accountId, notes, date } = req.body;
         const contract = await Contract.findById(req.params.id);
-        if (!contract) return res.status(404).json({ message: 'Contract not found' });
-        if (contract.status !== 'ACTIVE') return res.status(400).json({ message: 'Contract is not active' });
 
-        if (returnAmount !== undefined && Number(returnAmount) >= 0) {
-            await Payment.create({
-                contract: contract._id,
-                amount: Number(returnAmount),
-                type: 'REFUND',
-                paymentDate: Date.now(),
-                notes: notes || 'Deposit refund on termination'
-            });
+        if (!contract) {
+            return res.status(404).json({ status: false, message: 'Contract not found' });
         }
 
+        if (contract.status !== 'ACTIVE') {
+            return res.status(400).json({ status: false, message: 'Contract is not active' });
+        }
+
+        // Handle deposit return if amount provided
+        if (returnAmount !== undefined && Number(returnAmount) > 0) {
+            const refundAmount = Number(returnAmount);
+            const depositHeld = (contract.depositCollected || 0) - (contract.depositReturned || 0);
+
+            if (refundAmount > depositHeld) {
+                return res.status(400).json({
+                    status: false,
+                    message: `Return amount exceeds deposit held (₹${depositHeld})`
+                });
+            }
+
+            // Validate account
+            if (!accountId) {
+                return res.status(400).json({ status: false, message: 'Please select an account for refund' });
+            }
+
+            const account = await Account.findById(accountId);
+            if (!account) {
+                return res.status(404).json({ status: false, message: 'Account not found' });
+            }
+
+            // Check account has sufficient balance
+            if (account.balance < refundAmount) {
+                return res.status(400).json({
+                    status: false,
+                    message: `Insufficient balance in account (₹${account.balance})`
+                });
+            }
+
+            // Prepare payment date
+            let paymentDate = new Date();
+            if (date) {
+                const providedDate = new Date(date);
+                paymentDate.setFullYear(providedDate.getFullYear());
+                paymentDate.setMonth(providedDate.getMonth());
+                paymentDate.setDate(providedDate.getDate());
+            }
+
+            // Update account balance
+            account.balance -= refundAmount;
+            await account.save();
+
+            // Create Account Transaction
+            await AccountTransaction.create({
+                account: account._id,
+                contract: contract._id,
+                type: 'EXPENSE',
+                amount: refundAmount,
+                balanceAfter: account.balance,
+                date: paymentDate,
+                description: `Security Deposit Refund - ${contract.tenant.name}`
+            });
+
+            // Update contract deposit returned amount
+            contract.depositReturned = (contract.depositReturned || 0) + refundAmount;
+        }
+
+        // Terminate contract
         contract.status = 'TERMINATED';
         await contract.save();
 
+        // Vacate rooms
         await Room.updateMany(
             { _id: { $in: contract.rooms } },
             { $set: { status: 'VACANT', currentContract: null } }
         );
 
-        res.json({ message: 'Contract terminated', contract });
+        res.json({
+            status: true,
+            message: 'Contract terminated successfully',
+            data: contract
+        });
 
     } catch (error) {
-        res.status(400).json({ message: error.message });
+        console.error('Terminate contract error:', error);
+        res.status(400).json({ status: false, message: error.message });
     }
 };
 
@@ -173,10 +234,20 @@ const terminateContract = async (req, res) => {
 const getFinancials = async (req, res) => {
     try {
         const rents = await RentDue.find({ contract: req.params.id }).sort({ monthYear: 1 });
-        const deposits = await Payment.find({
+
+        // Fetch deposit transactions from AccountTransaction
+        const depositTransactions = await AccountTransaction.find({
             contract: req.params.id,
-            type: { $in: ['DEPOSIT', 'REFUND'] }
-        }).sort({ paymentDate: -1 });
+            description: { $regex: /Security Deposit/i }
+        }).sort({ date: -1 });
+
+        // Format deposits to match expected frontend structure
+        const deposits = depositTransactions.map(tx => ({
+            _id: tx._id,
+            amount: tx.amount,
+            type: tx.type === 'INCOME' ? 'DEPOSIT' : 'REFUND',
+            paymentDate: tx.date
+        }));
 
         res.json({ rents, deposits });
     } catch (error) {
@@ -283,36 +354,79 @@ const payRent = async (req, res) => {
     }
 };
 
-// @desc    Collect Full Deposit
+// @desc    Collect Deposit
 // @route   POST /api/contracts/:id/deposit/collect
 const collectDeposit = async (req, res) => {
     try {
+        const { accountId, amount, date, notes } = req.body;
         const contract = await Contract.findById(req.params.id);
-        if (!contract) return res.status(404).json({ message: 'Contract not found' });
 
-        // Calculate currently held
-        const deposits = await Payment.find({ contract: contract._id, type: { $in: ['DEPOSIT', 'REFUND'] } });
-        const paid = deposits.filter(p => p.type === 'DEPOSIT').reduce((sum, p) => sum + p.amount, 0);
-        const refunded = deposits.filter(p => p.type === 'REFUND').reduce((sum, p) => sum + p.amount, 0);
-        const held = paid - refunded;
-
-        const remaining = contract.depositAmount - held;
-
-        if (remaining <= 0) {
-            return res.status(400).json({ message: 'Deposit already fully collected' });
+        if (!contract) {
+            return res.status(404).json({ status: false, message: 'Contract not found' });
         }
 
-        const payment = await Payment.create({
+        // Validate amount
+        const depositAmount = Number(amount) || contract.depositAmount;
+        const remaining = contract.depositAmount - (contract.depositCollected || 0);
+
+        if (remaining <= 0) {
+            return res.status(400).json({ status: false, message: 'Deposit already fully collected' });
+        }
+
+        if (depositAmount > remaining) {
+            return res.status(400).json({
+                status: false,
+                message: `Amount exceeds remaining deposit of ₹${remaining}`
+            });
+        }
+
+        // Validate and get account
+        if (!accountId) {
+            return res.status(400).json({ status: false, message: 'Please select an account' });
+        }
+
+        const account = await Account.findById(accountId);
+        if (!account) {
+            return res.status(404).json({ status: false, message: 'Account not found' });
+        }
+
+        // Prepare payment date (use provided date with current time)
+        let paymentDate = new Date();
+        if (date) {
+            const providedDate = new Date(date);
+            paymentDate.setFullYear(providedDate.getFullYear());
+            paymentDate.setMonth(providedDate.getMonth());
+            paymentDate.setDate(providedDate.getDate());
+        }
+
+        // Update account balance
+        account.balance += depositAmount;
+        await account.save();
+
+        // Create Account Transaction
+        await AccountTransaction.create({
+            account: account._id,
             contract: contract._id,
-            amount: remaining,
-            type: 'DEPOSIT',
-            paymentDate: Date.now(),
-            notes: 'Initial Security Deposit'
+            type: 'INCOME',
+            amount: depositAmount,
+            balanceAfter: account.balance,
+            date: paymentDate,
+            description: `Security Deposit Collected - ${contract.tenant.name}`
         });
 
-        res.status(201).json(payment);
+        // Update contract deposit collected amount
+        contract.depositCollected = (contract.depositCollected || 0) + depositAmount;
+        await contract.save();
+
+        res.status(201).json({
+            status: true,
+            message: 'Deposit collected successfully',
+            data: { contract }
+        });
+
     } catch (error) {
-        res.status(400).json({ message: error.message });
+        console.error('Collect deposit error:', error);
+        res.status(400).json({ status: false, message: error.message });
     }
 };
 

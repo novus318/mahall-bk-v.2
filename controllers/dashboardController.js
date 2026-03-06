@@ -187,33 +187,43 @@ export const getDashboardStats = async (req, res) => {
         ]);
         const completedPaymentsAmount = completedPayments[0]?.total || 0;
 
-        // Security Deposits (Liability - money we need to return)
+        // Security Deposits (Liability - money we are holding and need to return)
+        // This should be: Collected - Returned for ALL contracts
         const securityDepositsStats = await Contract.aggregate([
-            { $match: { status: 'ACTIVE' } },
             {
                 $group: {
                     _id: null,
-                    totalDeposits: { $sum: '$depositAmount' },
-                    count: { $sum: 1 }
+                    totalCollected: { $sum: { $ifNull: ['$depositCollected', 0] } },
+                    totalReturned: { $sum: { $ifNull: ['$depositReturned', 0] } },
+                    activeCount: {
+                        $sum: {
+                            $cond: [
+                                {
+                                    $and: [
+                                        { $eq: ['$status', 'ACTIVE'] },
+                                        { $gt: [{ $subtract: [{ $ifNull: ['$depositCollected', 0] }, { $ifNull: ['$depositReturned', 0] }] }, 0] }
+                                    ]
+                                },
+                                1,
+                                0
+                            ]
+                        }
+                    }
                 }
             }
         ]);
-        const securityDeposits = securityDepositsStats[0]?.totalDeposits || 0;
-        const securityDepositsCount = securityDepositsStats[0]?.count || 0;
 
-        // Deposits Returned (from terminated/expired contracts)
-        const depositsReturned = await Contract.aggregate([
-            { $match: { status: { $in: ['EXPIRED', 'TERMINATED'] } } },
-            { $group: { _id: null, total: { $sum: '$depositAmount' } } }
-        ]);
-        const depositsReturnedAmount = depositsReturned[0]?.total || 0;
+        const depositsCollected = securityDepositsStats[0]?.totalCollected || 0;
+        const depositsReturned = securityDepositsStats[0]?.totalReturned || 0;
+        const securityDeposits = depositsCollected - depositsReturned; // Currently held
+        const securityDepositsCount = securityDepositsStats[0]?.activeCount || 0;
 
         // Calculate Total Receivables and Payables
         const totalReceivablesPending = houseDuesPending + memberDuesPending + rentDuesPending;
         const totalReceivablesCollected = houseDuesCollectedAmount + memberDuesCollectedAmount + rentCollectedAmount;
 
         const totalPayablesPending = pendingSalaries + pendingPayments + securityDeposits;
-        const totalPayablesPaid = paidSalariesAmount + completedPaymentsAmount + depositsReturnedAmount;
+        const totalPayablesPaid = paidSalariesAmount + completedPaymentsAmount + depositsReturned;
 
         res.status(200).json({
             counts: {
@@ -268,7 +278,7 @@ export const getDashboardStats = async (req, res) => {
                     },
                     deposits: {
                         held: securityDeposits,
-                        returned: depositsReturnedAmount,
+                        returned: depositsReturned,
                         count: securityDepositsCount
                     }
                 }
