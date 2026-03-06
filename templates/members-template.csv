@@ -1,0 +1,4 @@
+HouseID,name,gender,dateOfBirth,mobile,relationshipToHead,bloodGroup,education,occupation
+CYS001,John Doe,Male,1990-01-15,9876543210,Head,O+,Graduate,Engineer
+CYS001,Jane Doe,Female,1992-05-20,9876543211,Spouse,A+,Graduate,Teacher
+CYS001,Jack Doe,Male,2015-03-10,9876543212,Son,O+,School,Student

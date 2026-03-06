@@ -10,7 +10,7 @@ connectDB();
 const createAdmin = async () => {
     try {
         const username = process.argv[2] || 'admin';
-        const password = process.argv[3] || 'admin123';
+        const password = process.argv[3] || 'admin@123#';
         const role = process.argv[4] || 'admin';
 
         const userExists = await User.findOne({ username });

@@ -18,6 +18,15 @@ const paymentSchema = new Schema({
         enum: ['RENT', 'DEPOSIT', 'FINE', 'REFUND', 'OTHER', 'EXPENSE'],
         default: 'RENT'
     },
+    status: {
+        type: String,
+        enum: ['PENDING', 'COMPLETED', 'DELETED'],
+        default: 'PENDING'
+    },
+    deletedAt: {
+        type: Date,
+        default: null
+    },
     date: { // Unified date field (Expenses use this)
         type: Date,
         default: Date.now
@@ -25,6 +34,10 @@ const paymentSchema = new Schema({
     paymentDate: { // Legacy/Contract date field (Keep for backward compatibility)
         type: Date,
         default: Date.now
+    },
+    paidAt: { // When the payment was actually made
+        type: Date,
+        default: null
     },
     description: { type: String }, // Notes/Description
     notes: { type: String }, // Legacy notes

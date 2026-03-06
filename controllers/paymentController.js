@@ -68,7 +68,7 @@ export const deletePaymentCategory = async (req, res) => {
 
 export const getPayments = async (req, res) => {
     try {
-        const { page = 1, limit = 20, search } = req.query;
+        const { page = 1, limit = 20, search, status } = req.query;
         const query = {};
 
         if (search) {
@@ -76,6 +76,11 @@ export const getPayments = async (req, res) => {
                 { receiptNo: { $regex: search, $options: 'i' } },
                 { payee: { $regex: search, $options: 'i' } }
             ];
+        }
+
+        // Filter by status if provided
+        if (status) {
+            query.status = status;
         }
 
         const count = await Payment.countDocuments(query);
@@ -117,7 +122,7 @@ export const getPaymentById = async (req, res) => {
 
 export const createPayment = async (req, res) => {
     try {
-        const { date, accountId, categoryId, payee, payeeContact, items, description } = req.body; // Added payeeContact
+        const { date, accountId, categoryId, payee, payeeContact, items, description, isPaid } = req.body;
 
         // 1. Calculate Total
         const totalAmount = items.reduce((sum, item) => sum + Number(item.amount), 0);
@@ -132,15 +137,18 @@ export const createPayment = async (req, res) => {
             return res.status(404).json({ status: false, message: 'Account not found' });
         }
 
-        // REMOVED: Balance check to allow overdrafts
-        // if (account.balance < totalAmount) { ... }
+        // 3. Determine payment status
+        // isPaid = true means payment is completed immediately (default behavior)
+        // isPaid = false or undefined means payment is PENDING
+        const paymentStatus = isPaid === true ? 'COMPLETED' : 'PENDING';
+        const paidAt = isPaid === true ? new Date() : null;
 
-        // 3. Generate Receipt & Update Settings
+        // 4. Generate Receipt & Update Settings
         let settings = await SystemSettings.findOne();
         if (!settings) settings = await SystemSettings.create({}); // handle legacy/init
         if (!settings.paymentSettings) settings.paymentSettings = {};
 
-        let { receiptPrefix = 'PA-', receiptCurrentNumber = 1, receiptSequenceLimit = 999 } = settings.paymentSettings; // defaults
+        let { receiptPrefix = 'PA-', receiptCurrentNumber = 1, receiptSequenceLimit = 999 } = settings.paymentSettings;
         let receiptNo = '';
         let isUnique = false;
 
@@ -152,30 +160,19 @@ export const createPayment = async (req, res) => {
             if (!existing) {
                 isUnique = true;
             } else {
-                // If collision, force increment
-                // Check if we need to rotate prefix
                 if (receiptCurrentNumber >= receiptSequenceLimit) {
                     const prefixBase = receiptPrefix.replace(/-$/, '');
                     let lastChar = prefixBase.slice(-1);
                     let rest = prefixBase.slice(0, -1);
                     let nextChar = String.fromCharCode(lastChar.charCodeAt(0) + 1);
                     if (nextChar > 'Z') nextChar = 'A';
-                    receiptPrefix = `${rest}${nextChar}-`; // Update local var for next loop
+                    receiptPrefix = `${rest}${nextChar}-`;
                     receiptCurrentNumber = 1;
                 } else {
                     receiptCurrentNumber++;
                 }
             }
         }
-
-        // Commit the NEW next number to settings (Current + 1 for next time)
-        // Note: We used 'receiptCurrentNumber' for *this* transaction. 
-        // So next one should be +1.
-
-        // Logic check: if we used PA-003, we want settings to save PA-004 as next? 
-        // OR does settings store the "Current to be used"? 
-        // The implementation implies 'receiptCurrentNumber' is the ONE TO BE USED.
-        // So we must save the STATE for the *following* transaction.
 
         let nextNum = receiptCurrentNumber + 1;
         let nextPrefix = receiptPrefix;
@@ -194,41 +191,48 @@ export const createPayment = async (req, res) => {
         settings.paymentSettings.receiptCurrentNumber = nextNum;
         await settings.save();
 
-        // 4. Create Payment
+        // 5. Create Payment with status
         const payment = await Payment.create({
             receiptNo,
             date: date || new Date(),
-            paymentDate: date || new Date(), // Set both for consistency
+            paymentDate: date || new Date(),
             account: accountId,
             category: categoryId,
             payee,
-            payeeContact, // Added
+            payeeContact,
             items,
-            amount: totalAmount, // Map totalAmount to amount schema field
-            totalAmount, // Keep if desired, but schema uses 'amount'
+            amount: totalAmount,
+            totalAmount,
             description,
-            notes: description, // Sync description to notes
+            notes: description,
             type: 'EXPENSE',
+            status: paymentStatus,
+            paidAt,
             createdBy: req.user._id
         });
 
-        // 5. Update Account Balance
-        account.balance -= totalAmount;
-        await account.save();
+        // 6. Only update account balance and create transaction if payment is completed
+        if (paymentStatus === 'COMPLETED') {
+            account.balance -= totalAmount;
+            await account.save();
 
-        // 6. Log Transaction
-        await AccountTransaction.create({
-            account: account._id,
-            relatedAccount: null, // No related account for expense
-            payment: payment._id, // Link transaction to payment
-            type: 'EXPENSE',
-            amount: totalAmount,
-            balanceAfter: account.balance,
-            date: payment.date,
-            description: `Payment ${receiptNo} to ${payee}`
-        });
+            await AccountTransaction.create({
+                account: account._id,
+                relatedAccount: null,
+                payment: payment._id,
+                type: 'EXPENSE',
+                amount: totalAmount,
+                balanceAfter: account.balance,
+                date: payment.date,
+                description: `Payment ${receiptNo} to ${payee}`
+            });
+        }
 
-        res.status(201).json({ status: true, data: payment, message: 'Payment created successfully' });
+        const statusMessage = paymentStatus === 'COMPLETED' 
+            ? 'Payment created and completed successfully' 
+            : 'Payment created successfully (Pending)';
+
+        res.status(201).json({ status: true, data: payment, message: statusMessage });
 
     } catch (error) {
         console.error(error);
@@ -239,10 +243,14 @@ export const createPayment = async (req, res) => {
 export const updatePayment = async (req, res) => {
     try {
         const { id } = req.params;
-        const { date, accountId, categoryId, payee, payeeContact, items, description } = req.body; // Added payeeContact
+        const { date, accountId, categoryId, payee, payeeContact, items, description } = req.body;
 
         const payment = await Payment.findById(id);
         if (!payment) return res.status(404).json({ status: false, message: 'Payment not found' });
+
+        if (payment.status === 'DELETED') {
+            return res.status(400).json({ status: false, message: 'Cannot edit a deleted payment.' });
+        }
 
         const originalAmount = payment.amount;
         const originalAccountId = payment.account;
@@ -251,75 +259,73 @@ export const updatePayment = async (req, res) => {
         // Robust Date Parsing with Time Preservation
         let newDate = payment.date;
         if (date) {
-            // Create date object from input (usually 00:00:00)
             const inputDate = new Date(date);
-
-            // Use current time for the effective date as per user request
             const now = new Date();
             inputDate.setHours(now.getHours());
             inputDate.setMinutes(now.getMinutes());
             inputDate.setSeconds(now.getSeconds());
             inputDate.setMilliseconds(now.getMilliseconds());
-
             newDate = inputDate;
         }
 
         if (newTotalAmount <= 0) return res.status(400).json({ status: false, message: 'Total amount must be greater than 0' });
 
-        // 1. Handle Account & Financial Changes
-        if (String(originalAccountId) === String(accountId)) {
-            // Same Account: Adjust Balance
-            const account = await Account.findById(originalAccountId);
-            // Logic: Balance + Old - New (Refund Old, Deduct New)
-            account.balance = account.balance + originalAmount - newTotalAmount;
-            await account.save();
+        // Handle Account & Financial Changes for COMPLETED payments
+        if (payment.status === 'COMPLETED') {
+            if (String(originalAccountId) === String(accountId)) {
+                // Same Account: Adjust Balance
+                // Logic: Balance + Old - New (Add back old expense amount, subtract new expense amount)
+                const account = await Account.findById(originalAccountId);
+                
+                // Reverse old payment and apply new payment
+                account.balance = account.balance + originalAmount - newTotalAmount;
+                await account.save();
 
-            // Update Transaction
-            await AccountTransaction.findOneAndUpdate(
-                { payment: payment._id },
-                {
+                // Update Transaction
+                await AccountTransaction.findOneAndUpdate(
+                    { payment: payment._id },
+                    {
+                        amount: newTotalAmount,
+                        date: newDate,
+                        balanceAfter: account.balance,
+                        description: `Payment ${payment.receiptNo} to ${payee}`
+                    }
+                );
+            } else {
+                // Account Changed
+                // A. Revert Old Account (Add back original expense)
+                const oldAccount = await Account.findById(originalAccountId);
+                oldAccount.balance += originalAmount;
+                await oldAccount.save();
+
+                // Delete Old Transaction
+                await AccountTransaction.findOneAndDelete({ payment: payment._id });
+
+                // B. Apply to New Account (Subtract new expense)
+                const newAccount = await Account.findById(accountId);
+                newAccount.balance -= newTotalAmount;
+                await newAccount.save();
+
+                // Create New Transaction
+                await AccountTransaction.create({
+                    account: newAccount._id,
+                    payment: payment._id,
+                    type: 'EXPENSE',
                     amount: newTotalAmount,
+                    balanceAfter: newAccount.balance,
                     date: newDate,
-                    balanceAfter: account.balance,
                     description: `Payment ${payment.receiptNo} to ${payee}`
-                }
-            );
-        } else {
-            // Account Changed
-            // A. Revert Old Account
-            const oldAccount = await Account.findById(originalAccountId);
-            oldAccount.balance += originalAmount;
-            await oldAccount.save();
-
-            // Delete Old Transaction
-            await AccountTransaction.findOneAndDelete({ payment: payment._id });
-
-            // B. Apply to New Account
-            const newAccount = await Account.findById(accountId);
-            // REMOVED: Check balance for the NEW amount (since old is refunded to old account)
-            // if (newAccount.balance < newTotalAmount) { ... }
-            newAccount.balance -= newTotalAmount;
-            await newAccount.save();
-
-            // Create New Transaction
-            await AccountTransaction.create({
-                account: newAccount._id,
-                payment: payment._id,
-                type: 'EXPENSE',
-                amount: newTotalAmount,
-                balanceAfter: newAccount.balance,
-                date: newDate,
-                description: `Payment ${payment.receiptNo} to ${payee}`
-            });
+                });
+            }
         }
 
-        // 2. Update Payment Record
+        // Update Payment Record
         payment.date = newDate;
         payment.paymentDate = newDate;
         payment.account = accountId;
         payment.category = categoryId;
         payment.payee = payee;
-        payment.payeeContact = payeeContact; // Added
+        payment.payeeContact = payeeContact;
         payment.items = items;
         payment.amount = newTotalAmount;
         payment.description = description;
@@ -328,6 +334,108 @@ export const updatePayment = async (req, res) => {
         await payment.save();
 
         res.json({ status: true, data: payment, message: 'Payment updated successfully' });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+// Mark a pending payment as paid (completed)
+export const markPaymentAsPaid = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { date, accountId } = req.body; // Optional: allow changing date/account when marking as paid
+
+        const payment = await Payment.findById(id);
+        if (!payment) return res.status(404).json({ status: false, message: 'Payment not found' });
+
+        // Check current status
+        if (payment.status === 'COMPLETED') {
+            return res.status(400).json({ status: false, message: 'Payment is already completed' });
+        }
+
+        if (payment.status === 'DELETED') {
+            return res.status(400).json({ status: false, message: 'Cannot complete a deleted payment' });
+        }
+
+        // Get the account (use provided accountId or existing)
+        const account = await Account.findById(accountId || payment.account);
+        if (!account) {
+            return res.status(404).json({ status: false, message: 'Account not found' });
+        }
+
+        const paymentAmount = payment.amount;
+        const paymentDate = date ? new Date(date) : new Date();
+
+        // Update account balance
+        account.balance -= paymentAmount;
+        await account.save();
+
+        // Create account transaction
+        await AccountTransaction.create({
+            account: account._id,
+            relatedAccount: null,
+            payment: payment._id,
+            type: 'EXPENSE',
+            amount: paymentAmount,
+            balanceAfter: account.balance,
+            date: paymentDate,
+            description: `Payment ${payment.receiptNo} to ${payment.payee} (Marked as Paid)`
+        });
+
+        // Update payment status
+        payment.status = 'COMPLETED';
+        payment.paidAt = new Date();
+        payment.account = account._id;
+        if (date) {
+            payment.date = paymentDate;
+            payment.paymentDate = paymentDate;
+        }
+        await payment.save();
+
+        res.json({ 
+            status: true, 
+            data: payment, 
+            message: 'Payment marked as completed successfully' 
+        });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+// Delete a payment (soft delete - only reverses transaction, keeps payment record)
+export const deletePayment = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const payment = await Payment.findById(id);
+        if (!payment) return res.status(404).json({ status: false, message: 'Payment not found' });
+
+        // If payment was completed, reverse the account transaction
+        if (payment.status === 'COMPLETED') {
+            const account = await Account.findById(payment.account);
+            if (account) {
+                // Reverse the balance
+                account.balance += payment.amount;
+                await account.save();
+
+                // Delete the account transaction
+                await AccountTransaction.findOneAndDelete({ payment: payment._id });
+            }
+        }
+
+        // Soft delete: Mark payment as DELETED instead of removing it
+        payment.status = 'DELETED';
+        payment.deletedAt = new Date();
+        await payment.save();
+
+        res.json({ 
+            status: true, 
+            message: 'Payment deleted successfully (transaction reversed)' 
+        });
 
     } catch (error) {
         console.error(error);

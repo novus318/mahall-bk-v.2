@@ -205,40 +205,110 @@ const deleteHouse = async (req, res) => {
     }
 };
 
-// @desc    Bulk import houses from Excel
+// @desc    Bulk import houses from Excel/CSV
 // @route   POST /api/houses/import
 // @access  Private (Admin/Staff)
 
 const bulkImportHouses = async (req, res) => {
     try {
         if (!req.file) {
-            return res.status(400).json({ status: false, message: 'Please upload an Excel file' });
+            return res.status(400).json({ status: false, message: 'Please upload an Excel (.xlsx) or CSV file' });
         }
 
-        const workbook = new ExcelJS.Workbook();
-        await workbook.xlsx.load(req.file.buffer);
-        const worksheet = workbook.getWorksheet(1);
-        
-        // Convert worksheet to array of objects (similar to xlsx.utils.sheet_to_json)
-        const data = [];
-        const headers = [];
-        worksheet.eachRow((row, rowNumber) => {
-            if (rowNumber === 1) {
-                row.eachCell((cell) => {
-                    headers.push(cell.value);
-                });
-            } else {
+        let data = [];
+        const fileExtension = req.file.originalname.split('.').pop().toLowerCase();
+
+        // Handle CSV files
+        if (fileExtension === 'csv') {
+            const csvData = req.file.buffer.toString('utf-8');
+            const lines = csvData.split('\n').filter(line => line.trim());
+
+            if (lines.length < 2) {
+                return res.status(400).json({ status: false, message: 'CSV file is empty or has no data rows' });
+            }
+
+            const headers = lines[0].split(',').map(h => h.trim());
+
+            for (let i = 1; i < lines.length; i++) {
+                const values = lines[i].split(',').map(v => v.trim());
                 const rowData = {};
-                row.eachCell((cell, colNumber) => {
-                    const header = headers[colNumber - 1];
-                    rowData[header] = cell.value;
+                headers.forEach((header, index) => {
+                    rowData[header] = values[index] || '';
                 });
                 data.push(rowData);
             }
-        });
+        }
+        // Handle Excel files
+        else if (fileExtension === 'xlsx' || fileExtension === 'xls') {
+            try {
+                const workbook = new ExcelJS.Workbook();
+
+                // Validate buffer before processing
+                if (!req.file.buffer || req.file.buffer.length === 0) {
+                    return res.status(400).json({
+                        status: false,
+                        message: 'Uploaded file is empty or corrupted'
+                    });
+                }
+
+                await workbook.xlsx.load(req.file.buffer);
+                const worksheet = workbook.getWorksheet(1);
+
+                if (!worksheet) {
+                    return res.status(400).json({
+                        status: false,
+                        message: 'Excel file has no worksheets'
+                    });
+                }
+
+                // Convert worksheet to array of objects
+                const headers = [];
+                let hasData = false;
+
+                worksheet.eachRow((row, rowNumber) => {
+                    if (rowNumber === 1) {
+                        row.eachCell((cell) => {
+                            headers.push(cell.value);
+                        });
+                    } else {
+                        const rowData = {};
+                        let hasValues = false;
+                        row.eachCell((cell, colNumber) => {
+                            const header = headers[colNumber - 1];
+                            if (header && cell.value) {
+                                rowData[header] = cell.value;
+                                hasValues = true;
+                            }
+                        });
+                        if (hasValues) {
+                            data.push(rowData);
+                            hasData = true;
+                        }
+                    }
+                });
+
+                if (!hasData) {
+                    return res.status(400).json({
+                        status: false,
+                        message: 'Excel file has no data rows'
+                    });
+                }
+            } catch (excelError) {
+                console.error('Excel parsing error:', excelError);
+                return res.status(400).json({
+                    status: false,
+                    message: `Failed to read Excel file: ${excelError.message}. Please ensure it's a valid .xlsx file`
+                });
+            }
+        } else {
+            return res.status(400).json({
+                status: false,
+                message: 'Invalid file format. Please upload .xlsx or .csv file'
+            });
+        }
 
         if (!data || data.length === 0) {
-            return res.status(400).json({ status: false, message: 'Excel file is empty' });
+            return res.status(400).json({ status: false, message: 'No valid data found in file' });
         }
 
         let successCount = 0;
@@ -359,6 +429,7 @@ const bulkImportHouses = async (req, res) => {
         });
 
     } catch (error) {
+        console.error('Import error:', error);
         res.status(500).json({ status: false, message: error.message });
     }
 };

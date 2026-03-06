@@ -71,12 +71,149 @@ export const getDashboardStats = async (req, res) => {
             }
         }
 
-        // 4. Total Balance (Sum of all active accounts)
+        // 3. Total Balance (Sum of all active accounts)
         const accountAggregation = await Account.aggregate([
             { $match: { status: 'ACTIVE' } },
             { $group: { _id: null, total: { $sum: "$balance" } } }
         ]);
         const totalBalance = accountAggregation.length > 0 ? accountAggregation[0].total : 0;
+
+        // ========== RECEIVABLES (Money to GET) ==========
+
+        // Pending House Collection Dues
+        const houseDuesStats = await CollectionDue.aggregate([
+            { $match: { entityType: 'House', status: { $in: ['PENDING', 'PARTIAL'] } } },
+            {
+                $group: {
+                    _id: null,
+                    totalPending: { $sum: { $subtract: ['$amount', '$paidAmount'] } },
+                    count: { $sum: 1 }
+                }
+            }
+        ]);
+        const houseDuesPending = houseDuesStats[0]?.totalPending || 0;
+        const houseDuesCount = houseDuesStats[0]?.count || 0;
+
+        // Collected House Dues
+        const houseDuesCollected = await CollectionDue.aggregate([
+            { $match: { entityType: 'House', status: 'PAID' } },
+            { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        const houseDuesCollectedAmount = houseDuesCollected[0]?.total || 0;
+
+        // Pending Member Collection Dues
+        const memberDuesStats = await CollectionDue.aggregate([
+            { $match: { entityType: 'Member', status: { $in: ['PENDING', 'PARTIAL'] } } },
+            {
+                $group: {
+                    _id: null,
+                    totalPending: { $sum: { $subtract: ['$amount', '$paidAmount'] } },
+                    count: { $sum: 1 }
+                }
+            }
+        ]);
+        const memberDuesPending = memberDuesStats[0]?.totalPending || 0;
+        const memberDuesCount = memberDuesStats[0]?.count || 0;
+
+        // Collected Member Dues
+        const memberDuesCollected = await CollectionDue.aggregate([
+            { $match: { entityType: 'Member', status: 'PAID' } },
+            { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        const memberDuesCollectedAmount = memberDuesCollected[0]?.total || 0;
+
+        // Pending Rent Dues
+        const rentDuesStats = await RentDue.aggregate([
+            { $match: { status: { $in: ['PENDING', 'PARTIAL'] } } },
+            {
+                $group: {
+                    _id: null,
+                    totalPending: { $sum: { $subtract: ['$amount', '$collectedAmount'] } },
+                    count: { $sum: 1 }
+                }
+            }
+        ]);
+        const rentDuesPending = rentDuesStats[0]?.totalPending || 0;
+        const rentDuesCount = rentDuesStats[0]?.count || 0;
+
+        // Collected Rent
+        const rentCollected = await RentDue.aggregate([
+            { $match: { status: 'PAID' } },
+            { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        const rentCollectedAmount = rentCollected[0]?.total || 0;
+
+        // ========== PAYABLES (Money to GIVE) ==========
+
+        // Pending Staff Salaries
+        const pendingSalariesStats = await Payslip.aggregate([
+            { $match: { status: 'PENDING' } },
+            {
+                $group: {
+                    _id: null,
+                    totalPending: { $sum: '$finalAmount' },
+                    count: { $sum: 1 }
+                }
+            }
+        ]);
+        const pendingSalaries = pendingSalariesStats[0]?.totalPending || 0;
+        const pendingSalariesCount = pendingSalariesStats[0]?.count || 0;
+
+        // Paid Salaries
+        const paidSalaries = await Payslip.aggregate([
+            { $match: { status: 'PAID' } },
+            { $group: { _id: null, total: { $sum: '$finalAmount' } } }
+        ]);
+        const paidSalariesAmount = paidSalaries[0]?.total || 0;
+
+        // Pending Payments (Expenses)
+        const pendingPaymentsStats = await Payment.aggregate([
+            { $match: { status: 'PENDING' } },
+            {
+                $group: {
+                    _id: null,
+                    totalPending: { $sum: '$amount' },
+                    count: { $sum: 1 }
+                }
+            }
+        ]);
+        const pendingPayments = pendingPaymentsStats[0]?.totalPending || 0;
+        const pendingPaymentsCount = pendingPaymentsStats[0]?.count || 0;
+
+        // Completed Payments
+        const completedPayments = await Payment.aggregate([
+            { $match: { status: 'COMPLETED' } },
+            { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        const completedPaymentsAmount = completedPayments[0]?.total || 0;
+
+        // Security Deposits (Liability - money we need to return)
+        const securityDepositsStats = await Contract.aggregate([
+            { $match: { status: 'ACTIVE' } },
+            {
+                $group: {
+                    _id: null,
+                    totalDeposits: { $sum: '$depositAmount' },
+                    count: { $sum: 1 }
+                }
+            }
+        ]);
+        const securityDeposits = securityDepositsStats[0]?.totalDeposits || 0;
+        const securityDepositsCount = securityDepositsStats[0]?.count || 0;
+
+        // Deposits Returned (from terminated/expired contracts)
+        const depositsReturned = await Contract.aggregate([
+            { $match: { status: { $in: ['EXPIRED', 'TERMINATED'] } } },
+            { $group: { _id: null, total: { $sum: '$depositAmount' } } }
+        ]);
+        const depositsReturnedAmount = depositsReturned[0]?.total || 0;
+
+        // Calculate Total Receivables and Payables
+        const totalReceivablesPending = houseDuesPending + memberDuesPending + rentDuesPending;
+        const totalReceivablesCollected = houseDuesCollectedAmount + memberDuesCollectedAmount + rentCollectedAmount;
+
+        const totalPayablesPending = pendingSalaries + pendingPayments + securityDeposits;
+        const totalPayablesPaid = paidSalariesAmount + completedPaymentsAmount + depositsReturnedAmount;
 
         res.status(200).json({
             counts: {
@@ -86,9 +223,55 @@ export const getDashboardStats = async (req, res) => {
                 houses: houses
             },
             financials: {
-                balance: totalBalance, // Main Stat
-                currentMonth: currentMonthData, // Could be used if needed
-                trends: last6Months // Grouped for Chart
+                balance: totalBalance,
+                currentMonth: currentMonthData,
+                trends: last6Months,
+
+                // Receivables (Money to GET)
+                receivables: {
+                    total: {
+                        pending: totalReceivablesPending,
+                        collected: totalReceivablesCollected
+                    },
+                    houseDues: {
+                        pending: houseDuesPending,
+                        collected: houseDuesCollectedAmount,
+                        count: houseDuesCount
+                    },
+                    memberDues: {
+                        pending: memberDuesPending,
+                        collected: memberDuesCollectedAmount,
+                        count: memberDuesCount
+                    },
+                    rentDues: {
+                        pending: rentDuesPending,
+                        collected: rentCollectedAmount,
+                        count: rentDuesCount
+                    }
+                },
+
+                // Payables (Money to GIVE)
+                payables: {
+                    total: {
+                        pending: totalPayablesPending,
+                        paid: totalPayablesPaid
+                    },
+                    salaries: {
+                        pending: pendingSalaries,
+                        paid: paidSalariesAmount,
+                        count: pendingSalariesCount
+                    },
+                    payments: {
+                        pending: pendingPayments,
+                        completed: completedPaymentsAmount,
+                        count: pendingPaymentsCount
+                    },
+                    deposits: {
+                        held: securityDeposits,
+                        returned: depositsReturnedAmount,
+                        count: securityDepositsCount
+                    }
+                }
             }
         });
 

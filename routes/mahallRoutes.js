@@ -6,7 +6,27 @@ import { getMembers, getMemberById, createMember, updateMember, deleteMember, bu
 import { protect, authorize } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB limit
+    },
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = [
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+            'application/vnd.ms-excel', // .xls
+            'text/csv' // .csv
+        ];
+        const allowedExtensions = ['.xlsx', '.xls', '.csv'];
+        const fileExtension = file.originalname.toLowerCase().substring(file.originalname.lastIndexOf('.'));
+
+        if (allowedTypes.includes(file.mimetype) || allowedExtensions.includes(fileExtension)) {
+            cb(null, true);
+        } else {
+            cb(new Error('Invalid file type. Only Excel (.xlsx, .xls) and CSV files are allowed'));
+        }
+    }
+});
 
 // Apply protect middleware to all routes
 router.use(protect);
