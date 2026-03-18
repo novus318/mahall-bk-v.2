@@ -9,6 +9,7 @@ import RentDue from '../models/RentDue.js';
 import CollectionDue from '../models/CollectionDue.js';
 import Account from '../models/Account.js';
 import AccountTransaction from '../models/AccountTransaction.js';
+import Payable from '../models/Payable.js';
 
 export const getDashboardStats = async (req, res) => {
     try {
@@ -218,12 +219,39 @@ export const getDashboardStats = async (req, res) => {
         const securityDeposits = depositsCollected - depositsReturned; // Currently held
         const securityDepositsCount = securityDepositsStats[0]?.activeCount || 0;
 
+        // Loans/Credit Payables
+        const loansStats = await Payable.aggregate([
+            {
+                $match: { status: { $in: ['ACTIVE', 'PARTIALLY_REPAID', 'OVERDUE'] } }
+            },
+            {
+                $group: {
+                    _id: null,
+                    totalBalanceDue: { $sum: '$balanceDue' },
+                    totalRepaid: { $sum: '$totalRepaid' },
+                    totalAmount: { $sum: '$amount' },
+                    count: { $sum: 1 },
+                    overdueCount: {
+                        $sum: {
+                            $cond: [{ $eq: ['$status', 'OVERDUE'] }, 1, 0]
+                        }
+                    }
+                }
+            }
+        ]);
+
+        const loansPending = loansStats[0]?.totalBalanceDue || 0;
+        const loansRepaid = loansStats[0]?.totalRepaid || 0;
+        const loansTotal = loansStats[0]?.totalAmount || 0;
+        const loansCount = loansStats[0]?.count || 0;
+        const loansOverdueCount = loansStats[0]?.overdueCount || 0;
+
         // Calculate Total Receivables and Payables
         const totalReceivablesPending = houseDuesPending + memberDuesPending + rentDuesPending;
         const totalReceivablesCollected = houseDuesCollectedAmount + memberDuesCollectedAmount + rentCollectedAmount;
 
-        const totalPayablesPending = pendingSalaries + pendingPayments + securityDeposits;
-        const totalPayablesPaid = paidSalariesAmount + completedPaymentsAmount + depositsReturned;
+        const totalPayablesPending = pendingSalaries + pendingPayments + securityDeposits + loansPending;
+        const totalPayablesPaid = paidSalariesAmount + completedPaymentsAmount + depositsReturned + loansRepaid;
 
         res.status(200).json({
             counts: {
@@ -280,6 +308,13 @@ export const getDashboardStats = async (req, res) => {
                         held: securityDeposits,
                         returned: depositsReturned,
                         count: securityDepositsCount
+                    },
+                    loans: {
+                        pending: loansPending,
+                        repaid: loansRepaid,
+                        total: loansTotal,
+                        count: loansCount,
+                        overdueCount: loansOverdueCount
                     }
                 }
             }
@@ -303,6 +338,7 @@ export const getRecentActivity = async (req, res) => {
             .populate('payment', '_id')
             .populate('receipt', '_id')
             .populate('staff', '_id')
+            .populate('payable', '_id')
             .populate({
                 path: 'contract',
                 select: 'tenant _id', // Just need tenant name usually but contract doesn't duplicate tenant info?

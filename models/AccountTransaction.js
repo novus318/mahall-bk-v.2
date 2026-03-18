@@ -30,9 +30,13 @@ const accountTransactionSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Contract'
     },
+    payable: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Payable'
+    },
     type: {
         type: String,
-        enum: ['OPENING_BALANCE', 'TRANSFER_IN', 'TRANSFER_OUT', 'INCOME', 'EXPENSE'],
+        enum: ['OPENING_BALANCE', 'TRANSFER_IN', 'TRANSFER_OUT', 'INCOME', 'EXPENSE', 'LOAN_RECEIVED', 'LOAN_REPAYMENT'],
         required: true
     },
     amount: {

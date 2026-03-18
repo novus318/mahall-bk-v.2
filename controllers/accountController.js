@@ -3,6 +3,15 @@ import AccountTransaction from '../models/AccountTransaction.js';
 import ExcelJS from 'exceljs';
 import mongoose from 'mongoose';
 
+// Helper function to get current date in Indian timezone (IST - UTC+5:30)
+const getIndianTime = () => {
+    const now = new Date();
+    // IST is UTC+5:30
+    const istOffset = 5.5 * 60 * 60 * 1000; // 5 hours 30 minutes in milliseconds
+    const utc = now.getTime() + (now.getTimezoneOffset() * 60 * 1000);
+    return new Date(utc + istOffset);
+};
+
 // @desc    Create new account
 // @route   POST /api/accounts
 // @access  Private
@@ -28,13 +37,13 @@ export const createAccount = async (req, res) => {
             isPrimary: shouldBePrimary
         });
 
-        // Log Opening Balance
+        // Log Opening Balance with Indian timezone
         await AccountTransaction.create({
             account: account._id,
             type: 'OPENING_BALANCE',
             amount: Number(openingBalance) || 0,
             balanceAfter: Number(openingBalance) || 0,
-            date: new Date(),
+            date: getIndianTime(),
             description: 'Opening Balance'
         });
 
@@ -140,14 +149,14 @@ export const transferFunds = async (req, res) => {
         await fromAccount.save();
         await toAccount.save();
 
-        // Log Transactions
+        // Log Transactions with Indian timezone
         await AccountTransaction.create({
             account: fromAccount._id,
             relatedAccount: toAccount._id,
             type: 'TRANSFER_OUT',
             amount: Number(amount),
             balanceAfter: fromAccount.balance,
-            date: new Date(),
+            date: getIndianTime(),
             description: description || `Transfer to ${toAccount.name}`
         });
 
@@ -157,7 +166,7 @@ export const transferFunds = async (req, res) => {
             type: 'TRANSFER_IN',
             amount: Number(amount),
             balanceAfter: toAccount.balance,
-            date: new Date(),
+            date: getIndianTime(),
             description: description || `Transfer from ${fromAccount.name}`
         });
 
@@ -282,7 +291,7 @@ export const exportTransactions = async (req, res) => {
 
         // Transform data
         const data = transactions.map(t => {
-            const isCredit = ['OPENING_BALANCE', 'TRANSFER_IN', 'INCOME'].includes(t.type);
+            const isCredit = ['OPENING_BALANCE', 'TRANSFER_IN', 'INCOME', 'LOAN_RECEIVED'].includes(t.type);
             return {
                 Date: new Date(t.date).toLocaleDateString(),
                 Description: t.description,
