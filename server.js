@@ -36,6 +36,7 @@ import collectionRoutes from './routes/collectionRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import paymentGatewayRoutes from './routes/paymentGatewayRoutes.js';
 import payableRoutes from './routes/payableRoutes.js';
+import certificateRoutes from './routes/certificateRoutes.js';
 
 app.use('/api/auth', authRoutes);
 app.use('/api/dashboard', dashboardRoutes);
@@ -53,6 +54,7 @@ app.use('/api/contracts', contractRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/receipts', receiptRoutes);
 app.use('/api/payables', payableRoutes);
+app.use('/api/certificates', certificateRoutes);
 
 const PORT = process.env.PORT || 5000;
 
