@@ -18,7 +18,3 @@ Backend for the Mahall v.2 project.
    PORT=5000
    MONGO_URI=mongodb://localhost:27017/mahall_v2
    ```
-
-## Scripts
-- `npm start`: Start the server in production mode.
-- `npm run dev`: Start the server in development mode with Nodemon.
