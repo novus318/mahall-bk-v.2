@@ -19,6 +19,27 @@ const getMembers = async (req, res) => {
         if (req.query.family) query.family = req.query.family;
         if (req.query.house) query.house = req.query.house;
 
+        // Gender filter
+        if (req.query.gender && req.query.gender !== 'ALL') {
+            andConditions.push({ gender: req.query.gender });
+        }
+
+        // Blood Group filter
+        if (req.query.bloodGroup && req.query.bloodGroup !== 'ALL') {
+            andConditions.push({ bloodGroup: req.query.bloodGroup });
+        }
+
+        // Education filter
+        if (req.query.education && req.query.education !== 'ALL') {
+            andConditions.push({ education: req.query.education });
+        }
+
+        // Marital Status filter
+        if (req.query.maritalStatus && req.query.maritalStatus !== 'ALL') {
+            andConditions.push({ maritalStatus: req.query.maritalStatus });
+        }
+
+        // Frequency/Subscription filter
         if (req.query.frequency && req.query.frequency !== 'ALL') {
             if (req.query.frequency === 'None') {
                 andConditions.push({
@@ -29,6 +50,34 @@ const getMembers = async (req, res) => {
                 });
             } else {
                 andConditions.push({ 'subscription.frequency': req.query.frequency });
+            }
+        }
+
+        // Age filter - calculate birth date range based on age
+        const currentDate = new Date();
+        const ageMin = req.query.ageMin ? parseInt(req.query.ageMin) : null;
+        const ageMax = req.query.ageMax ? parseInt(req.query.ageMax) : null;
+        
+        if ((ageMin !== null && !isNaN(ageMin)) || (ageMax !== null && !isNaN(ageMax))) {
+            const dateConditions = {};
+            
+            // If ageMin is provided, calculate max birth date (oldest allowed)
+            // e.g., ageMin=18 means born <= (currentYear - 18)
+            if (ageMin !== null && !isNaN(ageMin)) {
+                const maxBirthDate = new Date(currentDate.getFullYear() - ageMin, currentDate.getMonth(), currentDate.getDate());
+                dateConditions.$lte = maxBirthDate;
+            }
+            
+            // If ageMax is provided, calculate min birth date (youngest allowed)
+            // e.g., ageMax=60 means born >= (currentYear - 60 - 1) + 1 day
+            if (ageMax !== null && !isNaN(ageMax)) {
+                const minBirthDate = new Date(currentDate.getFullYear() - ageMax - 1, currentDate.getMonth(), currentDate.getDate());
+                minBirthDate.setDate(minBirthDate.getDate() + 1);
+                dateConditions.$gte = minBirthDate;
+            }
+            
+            if (Object.keys(dateConditions).length > 0) {
+                andConditions.push({ dateOfBirth: dateConditions });
             }
         }
 
