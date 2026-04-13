@@ -18,3 +18,5 @@ Backend for the Mahall v.2 project.
    PORT=5000
    MONGO_URI=mongodb://localhost:27017/mahall_v2
    ```
+
+   Deployment=v.01
