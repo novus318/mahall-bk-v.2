@@ -37,5 +37,7 @@ const collectionDueSchema = new Schema({
 
 // Index for uniqueness: One due per entity per period
 collectionDueSchema.index({ entityId: 1, period: 1 }, { unique: true });
+// Index for dashboard stats queries
+collectionDueSchema.index({ entityType: 1, status: 1 });
 
 export default model('CollectionDue', collectionDueSchema);

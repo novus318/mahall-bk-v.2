@@ -56,4 +56,8 @@ const accountTransactionSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
+// Indexes for optimized queries
+accountTransactionSchema.index({ date: -1, type: 1 }); // For transaction stats with date range and type filtering
+accountTransactionSchema.index({ date: -1 }); // For recent activity sorting
+
 export default mongoose.model('AccountTransaction', accountTransactionSchema);

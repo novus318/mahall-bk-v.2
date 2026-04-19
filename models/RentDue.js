@@ -46,5 +46,7 @@ const rentDueSchema = new Schema({
 
 // Prevent duplicate rent generation for same month/contract
 rentDueSchema.index({ contract: 1, monthYear: 1 }, { unique: true });
+// Index for dashboard stats queries
+rentDueSchema.index({ status: 1 });
 
 export default model('RentDue', rentDueSchema);

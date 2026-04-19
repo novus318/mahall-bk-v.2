@@ -112,6 +112,9 @@ const payableSchema = new Schema({
     timestamps: true
 });
 
+// Index for dashboard stats queries
+payableSchema.index({ status: 1 });
+
 // Update status before saving
 payableSchema.pre('save', async function() {
     if (this.balanceDue <= 0) {
@@ -120,7 +123,7 @@ payableSchema.pre('save', async function() {
     } else if (this.totalRepaid > 0) {
         this.status = 'PARTIALLY_REPAID';
     }
-    
+
     // Check if overdue
     if (this.dueDate && this.dueDate < new Date() && this.balanceDue > 0) {
         this.status = 'OVERDUE';

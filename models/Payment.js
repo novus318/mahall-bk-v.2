@@ -61,4 +61,7 @@ const paymentSchema = new Schema({
     timestamps: true
 });
 
+// Index for dashboard stats queries
+paymentSchema.index({ status: 1 });
+
 export default model('Payment', paymentSchema);

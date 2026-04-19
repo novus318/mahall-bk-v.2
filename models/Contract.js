@@ -48,4 +48,7 @@ const contractSchema = new Schema({
     timestamps: true
 });
 
+// Index for dashboard stats queries
+contractSchema.index({ status: 1 });
+
 export default model('Contract', contractSchema);

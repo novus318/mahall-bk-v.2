@@ -57,6 +57,8 @@ const payslipSchema = new mongoose.Schema({
 
 // Ensure one payslip per month per staff
 payslipSchema.index({ staff: 1, monthYear: 1 }, { unique: true });
+// Index for dashboard stats queries
+payslipSchema.index({ status: 1 });
 
 const Payslip = mongoose.model('Payslip', payslipSchema);
 export default Payslip;

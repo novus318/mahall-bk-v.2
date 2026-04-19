@@ -45,6 +45,9 @@ const accountSchema = mongoose.Schema({
     timestamps: true
 });
 
+// Index for dashboard stats queries
+accountSchema.index({ status: 1 });
+
 const Account = mongoose.model('Account', accountSchema);
 
 export default Account;
