@@ -40,6 +40,40 @@ const staffSchema = new mongoose.Schema({
         type: String,
         trim: true
     },
+    address: {
+        street: { type: String, trim: true },
+        city: { type: String, trim: true },
+        state: { type: String, trim: true },
+        pincode: { type: String, trim: true },
+        fullAddress: { type: String, trim: true }
+    },
+    emergencyContact: {
+        name: { type: String, trim: true },
+        relationship: { type: String, trim: true },
+        phone: { type: String, trim: true },
+        alternatePhone: { type: String, trim: true }
+    },
+    qualifications: {
+        type: String,
+        trim: true
+    },
+    religion: {
+        type: String,
+        trim: true
+    },
+    otherAllowance: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    jobDescription: {
+        type: String,
+        trim: true
+    },
+    additionalInfo: {
+        type: String,
+        trim: true
+    },
     status: {
         type: String,
         enum: ['ACTIVE', 'INACTIVE'],
