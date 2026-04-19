@@ -25,6 +25,12 @@ const systemSettingsSchema = mongoose.Schema({
         houseCronTime: { type: String, default: '10:00' }, // HH:mm (24-hour)
         memberCronDay: { type: Number, default: 1 },
         memberCronTime: { type: String, default: '10:00' }
+    },
+    // OTP for settings access
+    settingsOTP: {
+        code: { type: String },
+        expiresAt: { type: Date },
+        userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
     }
 }, {
     timestamps: true

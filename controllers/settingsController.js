@@ -1,4 +1,5 @@
 import SystemSettings from '../models/SystemSettings.js';
+import axios from 'axios';
 
 // @desc    Get alert contacts
 // @route   GET /api/settings/alert-contacts
@@ -126,4 +127,130 @@ const updateCollectionSettings = async (req, res) => {
     }
 };
 
-export { getAlertContacts, updateAlertContacts, getPaymentSettings, updatePaymentSettings, getCollectionSettings, updateCollectionSettings };
+// @desc    Send OTP to alert contacts for settings access
+// @route   POST /api/settings/send-otp
+// @access  Private/Admin
+const sendSettingsOTP = async (req, res) => {
+    try {
+        // Get alert contacts
+        let settings = await SystemSettings.findOne();
+        if (!settings || !settings.alertContacts || settings.alertContacts.length === 0) {
+            return res.status(400).json({ status: false, message: 'No alert contacts configured. Please add alert contacts first.' });
+        }
+
+        // Generate 6-digit OTP
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+        // Store OTP with 5-minute expiry
+        settings.settingsOTP = {
+            code: otp,
+            expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes
+            userId: req.user._id
+        };
+        await settings.save();
+
+        // Send OTP to all alert contacts via WhatsApp
+        const TOKEN = process.env.WHATSAPP_TOKEN;
+        const API_URL = process.env.WHATSAPP_API_URL;
+
+        if (!TOKEN || !API_URL) {
+            return res.status(500).json({ status: false, message: 'WhatsApp not configured' });
+        }
+
+        const sendPromises = settings.alertContacts.map(async (contact) => {
+            try {
+                const payload = {
+                    messaging_product: 'whatsapp',
+                    to: contact.number,
+                    type: 'template',
+                    template: {
+                        name: 'otp',
+                        language: { code: 'en' },
+                        components: [
+                            {
+                                type: 'body',
+                                parameters: [
+                                    { type: 'text', text: otp }
+                                ]
+                            }
+                        ]
+                    }
+                };
+
+                await axios.post(API_URL, payload, {
+                    headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' }
+                });
+
+                return { success: true, contact: contact.name };
+            } catch (error) {
+                console.error(`Failed to send OTP to ${contact.name}:`, error.response?.data || error.message);
+                return { success: false, contact: contact.name, error: error.message };
+            }
+        });
+
+        const results = await Promise.all(sendPromises);
+        const successful = results.filter(r => r.success).length;
+        const failed = results.filter(r => !r.success).length;
+
+        res.json({
+            status: true,
+            message: `OTP sent to ${successful} contact(s)${failed > 0 ? `, ${failed} failed` : ''}`,
+            data: {
+                sent: successful,
+                failed: failed,
+                expiresIn: 300 // 5 minutes in seconds
+            }
+        });
+    } catch (error) {
+        console.error('Send OTP Error:', error);
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+// @desc    Verify OTP for settings access
+// @route   POST /api/settings/verify-otp
+// @access  Private/Admin
+const verifySettingsOTP = async (req, res) => {
+    try {
+        const { otp } = req.body;
+
+        if (!otp || otp.length !== 6) {
+            return res.status(400).json({ status: false, message: 'Invalid OTP format' });
+        }
+
+        const settings = await SystemSettings.findOne();
+        if (!settings || !settings.settingsOTP || !settings.settingsOTP.code) {
+            return res.status(400).json({ status: false, message: 'No OTP found. Please request a new OTP.' });
+        }
+
+        // Check if OTP expired
+        if (new Date() > settings.settingsOTP.expiresAt) {
+            settings.settingsOTP = undefined;
+            await settings.save();
+            return res.status(400).json({ status: false, message: 'OTP expired. Please request a new OTP.' });
+        }
+
+        // Check if OTP matches and belongs to current user
+        if (settings.settingsOTP.code !== otp || settings.settingsOTP.userId.toString() !== req.user._id.toString()) {
+            return res.status(400).json({ status: false, message: 'Invalid OTP' });
+        }
+
+        // Clear OTP after successful verification
+        settings.settingsOTP = undefined;
+        await settings.save();
+
+        res.json({
+            status: true,
+            message: 'OTP verified successfully',
+            data: {
+                accessGranted: true,
+                validFor: 30 * 60 // Access valid for 30 minutes in seconds
+            }
+        });
+    } catch (error) {
+        console.error('Verify OTP Error:', error);
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+export { getAlertContacts, updateAlertContacts, getPaymentSettings, updatePaymentSettings, getCollectionSettings, updateCollectionSettings, sendSettingsOTP, verifySettingsOTP };
