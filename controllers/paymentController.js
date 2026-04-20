@@ -3,6 +3,7 @@ import PaymentCategory from '../models/PaymentCategory.js';
 import SystemSettings from '../models/SystemSettings.js';
 import Account from '../models/Account.js';
 import AccountTransaction from '../models/AccountTransaction.js';
+import { sendPaymentAlert } from './settingsController.js';
 
 // --- Categories ---
 
@@ -228,6 +229,9 @@ export const createPayment = async (req, res) => {
             });
         }
 
+        // Send alert if amount > 10000
+        await sendPaymentAlert(payment, 'CREATE');
+
         const statusMessage = paymentStatus === 'COMPLETED' 
             ? 'Payment created and completed successfully' 
             : 'Payment created successfully (Pending)';
@@ -332,6 +336,9 @@ export const updatePayment = async (req, res) => {
         payment.notes = description;
 
         await payment.save();
+
+        // Send alert if amount > 10000
+        await sendPaymentAlert(payment, 'UPDATE');
 
         res.json({ status: true, data: payment, message: 'Payment updated successfully' });
 

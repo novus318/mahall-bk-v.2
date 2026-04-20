@@ -172,6 +172,14 @@ const sendSettingsOTP = async (req, res) => {
                                 parameters: [
                                     { type: 'text', text: otp }
                                 ]
+                            },
+                            {
+                                type: 'button',
+                                sub_type: 'url',
+                                index: 0,
+                                parameters: [
+                                     { type: 'text', text: otp }
+                                ]
                             }
                         ]
                     }
@@ -251,6 +259,75 @@ const verifySettingsOTP = async (req, res) => {
         console.error('Verify OTP Error:', error);
         res.status(500).json({ status: false, message: error.message });
     }
+};
+
+// @desc    Send payment alert when amount > 10000
+// @access  Private (called internally)
+export const sendPaymentAlert = async (payment, action) => {
+    const THRESHOLD = 9999;
+    
+    if (Number(payment.amount) <= THRESHOLD) {
+        return { sent: 0, threshold: THRESHOLD };
+    }
+
+    // Get alert contacts
+    let settings = await SystemSettings.findOne();
+    if (!settings || !settings.alertContacts || settings.alertContacts.length === 0) {
+        console.log('No alert contacts configured for payment alert');
+        return { sent: 0, reason: 'no contacts' };
+    }
+
+    const TOKEN = process.env.WHATSAPP_TOKEN;
+    const API_URL = process.env.WHATSAPP_API_URL;
+
+    if (!TOKEN || !API_URL) {
+        console.log('WhatsApp not configured for payment alert');
+        return { sent: 0, reason: 'no whatsapp config' };
+    }
+
+    const amountStr = Number(payment.amount).toLocaleString('en-IN');
+    const dateStr = new Date(payment.date).toLocaleDateString('en-IN');
+    const actionText = action === 'CREATE' ? 'സൃഷ്ടിച്ചു' : 'അപ്ഡേറ്റ് ചെയ്തു';
+
+    const sendPromises = settings.alertContacts.map(async (contact) => {
+        try {
+            const payload = {
+                messaging_product: 'whatsapp',
+                to: contact.number,
+                type: 'template',
+                template: {
+                    name: 'payment_alert',
+                    language: { code: 'ml' },
+                    components: [
+                        {
+                            type: 'body',
+                            parameters: [
+                                { type: 'text', text: actionText },
+                                { type: 'text', text: payment.receiptNo || 'N/A' },
+                                { type: 'text', text: payment.payee || 'N/A' },
+                                { type: 'text', text: amountStr },
+                                { type: 'text', text: dateStr }
+                            ]
+                        }
+                    ]
+                }
+            };
+
+            await axios.post(API_URL, payload, {
+                headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' }
+            });
+
+            return { success: true, contact: contact.name };
+        } catch (error) {
+            console.error(`Failed to send payment alert to ${contact.name}:`, error.response?.data || error.message);
+            return { success: false, contact: contact.name, error: error.message };
+        }
+    });
+
+    const results = await Promise.all(sendPromises);
+    const successful = results.filter(r => r.success).length;
+    
+    return { sent: successful, threshold: THRESHOLD };
 };
 
 export { getAlertContacts, updateAlertContacts, getPaymentSettings, updatePaymentSettings, getCollectionSettings, updateCollectionSettings, sendSettingsOTP, verifySettingsOTP };
