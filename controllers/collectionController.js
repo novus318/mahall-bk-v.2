@@ -7,6 +7,7 @@ import AccountTransaction from '../models/AccountTransaction.js';
 import SystemSettings from '../models/SystemSettings.js';
 import mongoose from 'mongoose';
 import PDFDocument from 'pdfkit';
+import { generateBulkDuesInternal } from '../services/collectionService.js';
 
 // @desc    Update Subscription Settings
 // @route   PUT /api/collections/:type/:id/subscription
@@ -794,74 +795,13 @@ const getCollectionPeriods = async (req, res) => {
 // @access  Private/System
 const generateBulkDues = async (req, res) => {
     try {
-        const { entityType, period: specificPeriod, frequency = 'Monthly' } = req.body;
+        const { entityType, period, frequency = 'Monthly' } = req.body;
 
-        // Determine Period
-        let targetPeriod = specificPeriod;
-        if (!targetPeriod) {
-            const d = new Date();
-            if (frequency === 'Yearly') {
-                targetPeriod = d.getFullYear().toString();
-            } else {
-                // Monthly: Default to Last Month
-                d.setMonth(d.getMonth() - 1); // User req: "generate due of last month"
-                const month = (d.getMonth() + 1).toString().padStart(2, '0');
-                const year = d.getFullYear();
-                targetPeriod = `${month}-${year}`;
-            }
-        }
-
-        let generatedCount = 0;
-        let skippedCount = 0;
-        const typesToProcess = [];
-
-        if (!entityType || entityType === 'All') {
-            typesToProcess.push('House', 'Member');
-        } else {
-            typesToProcess.push(entityType);
-        }
-
-        for (const type of typesToProcess) {
-            const Model = type === 'House' ? House : Member;
-
-            // 1. Find subscribers by Frequency
-            const entities = await Model.find({ 'subscription.frequency': frequency }).select('_id subscription');
-
-            if (entities.length === 0) continue;
-
-            const entityIds = entities.map(e => e._id);
-
-            // 2. Find Existing
-            const existingDues = await CollectionDue.find({
-                entityId: { $in: entityIds },
-                period: targetPeriod
-            }).select('entityId');
-
-            const existingIdsSet = new Set(existingDues.map(d => d.entityId.toString()));
-
-            // 3. Prepare Batch
-            const duesToCreate = [];
-            entities.forEach(entity => {
-                if (!existingIdsSet.has(entity._id.toString()) && entity.subscription && entity.subscription.amount > 0) {
-                    duesToCreate.push({
-                        entityType: type,
-                        entityId: entity._id,
-                        period: targetPeriod,
-                        frequency: frequency,
-                        amount: entity.subscription.amount,
-                        status: 'PENDING'
-                    });
-                } else {
-                    skippedCount++;
-                }
-            });
-
-            // 4. Bulk Insert
-            if (duesToCreate.length > 0) {
-                await CollectionDue.insertMany(duesToCreate);
-                generatedCount += duesToCreate.length;
-            }
-        }
+        const { generatedCount, skippedCount, targetPeriod } = await generateBulkDuesInternal({
+            entityType,
+            period,
+            frequency
+        });
 
         res.json({
             status: true,

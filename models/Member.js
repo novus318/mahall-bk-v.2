@@ -107,6 +107,8 @@ const memberSchema = mongoose.Schema({
     timestamps: true
 });
 
+memberSchema.index({ 'subscription.frequency': 1 });
+
 const Member = mongoose.model('Member', memberSchema);
 
 export default Member;

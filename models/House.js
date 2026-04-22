@@ -39,6 +39,8 @@ const houseSchema = mongoose.Schema({
     timestamps: true
 });
 
+houseSchema.index({ 'subscription.frequency': 1 });
+
 const House = mongoose.model('House', houseSchema);
 
 export default House;
