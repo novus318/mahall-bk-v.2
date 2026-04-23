@@ -1,3 +1,4 @@
+import axios from 'axios';
 import House from '../models/House.js';
 import Member from '../models/Member.js';
 import CollectionDue from '../models/CollectionDue.js';
@@ -815,6 +816,165 @@ const generateBulkDues = async (req, res) => {
     }
 };
 
+// @desc    Get Arrears Summary
+// @route   GET /api/collections/arrears
+// @access  Private
+const getArrearsSummary = async (req, res) => {
+    try {
+        const { entityType } = req.query; // 'House' or 'Member'
+
+        const match = { status: { $in: ['PENDING', 'PARTIAL'] } };
+        if (entityType && entityType !== 'All') {
+            match.entityType = entityType;
+        }
+
+        const arrears = await CollectionDue.aggregate([
+            { $match: match },
+            {
+                $group: {
+                    _id: { entityId: '$entityId', entityType: '$entityType' },
+                    totalAmount: { $sum: { $subtract: ['$amount', '$paidAmount'] } },
+                    pendingCount: { $sum: 1 },
+                    periods: { $push: '$period' }
+                }
+            },
+            {
+                $lookup: {
+                    from: 'houses',
+                    localField: '_id.entityId',
+                    foreignField: '_id',
+                    as: 'houseInfo'
+                }
+            },
+            {
+                $lookup: {
+                    from: 'members',
+                    localField: '_id.entityId',
+                    foreignField: '_id',
+                    as: 'memberInfo'
+                }
+            },
+            {
+                $project: {
+                    entityId: '$_id.entityId',
+                    entityType: '$_id.entityType',
+                    totalAmount: 1,
+                    pendingCount: 1,
+                    periods: 1,
+                    entity: {
+                        $cond: [
+                            { $eq: ['$_id.entityType', 'House'] },
+                            { $arrayElemAt: ['$houseInfo', 0] },
+                            { $arrayElemAt: ['$memberInfo', 0] }
+                        ]
+                    }
+                }
+            },
+            { $sort: { totalAmount: -1 } }
+        ]);
+
+        res.json({ status: true, data: arrears });
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+// @desc    Send Arrears Summary Reminder
+// @route   POST /api/collections/remind/summary
+// @access  Private
+const sendArrearsReminder = async (req, res) => {
+    try {
+        const { entityId, entityType } = req.body;
+
+        // 1. Get Arrears for this entity
+        const dues = await CollectionDue.find({
+            entityId,
+            status: { $in: ['PENDING', 'PARTIAL'] }
+        });
+
+        if (dues.length === 0) {
+            return res.status(400).json({ status: false, message: 'No pending dues found' });
+        }
+
+        const totalAmount = dues.reduce((sum, d) => sum + (d.amount - d.paidAmount), 0);
+        const periodsList = dues.map(d => d.period).join(', ');
+
+        // 2. Get Entity Info (to get WhatsApp number)
+        const Model = entityType === 'House' ? House : Member;
+        let entity;
+        
+        if (entityType === 'House') {
+            entity = await Model.findById(entityId).populate('head');
+        } else {
+            entity = await Model.findById(entityId);
+        }
+
+        if (!entity) return res.status(404).json({ status: false, message: 'Entity not found' });
+
+        const recipientName = entityType === 'House' ? entity.head?.name : entity.name;
+        let recipientNumber = entityType === 'House' 
+            ? (entity.head?.whatsapp || entity.head?.mobile)
+            : (entity.whatsapp || entity.mobile);
+
+        if (!recipientNumber) {
+            return res.status(400).json({ status: false, message: 'No contact number found' });
+        }
+
+        // 3. Send WhatsApp
+        const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+        const API_URL = process.env.WHATSAPP_API_URL;
+
+        if (!WHATSAPP_TOKEN || !API_URL) {
+            return res.status(500).json({ status: false, message: 'WhatsApp configuration missing' });
+        }
+
+        // Clean number
+        let phone = recipientNumber.replace(/\D/g, '');
+        if (phone.length === 10) phone = '91' + phone;
+
+        const payload = {
+            messaging_product: 'whatsapp',
+            to: phone,
+            type: 'template',
+            template: {
+                name: 'due_reminder_summary', 
+                language: { code: 'ml' },
+                components: [
+                    {
+                        type: 'body',
+                        parameters: [
+                            { type: 'text', text: recipientName || 'Recipient' },
+                            { type: 'text', text: `₹${totalAmount}` },
+                            { type: 'text', text: periodsList }
+                        ]
+                    },
+                    {
+                        type: 'button',
+                        sub_type: 'url',
+                        index: '0',
+                        parameters: [
+                            { type: 'text', text: entityId } // Suffix for the Pay Now button
+                        ]
+                    }
+                ]
+            }
+        };
+
+        await axios.post(API_URL, payload, {
+            headers: {
+                'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        res.json({ status: true, message: 'Arrears reminder sent' });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
 export {
     updateSubscription,
     getDues,
@@ -825,5 +985,7 @@ export {
     getCollectionReceipt,
     downloadCollectionReceiptPdf,
     getCollectionPeriods,
-    generateBulkDues
+    generateBulkDues,
+    getArrearsSummary,
+    sendArrearsReminder
 };

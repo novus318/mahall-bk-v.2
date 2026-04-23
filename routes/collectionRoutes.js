@@ -9,7 +9,9 @@ import {
     confirmRejection,
     getCollectionReceipt,
     downloadCollectionReceiptPdf,
-    getCollectionPeriods
+    getCollectionPeriods,
+    getArrearsSummary,
+    sendArrearsReminder
 } from '../controllers/collectionController.js';
 
 import { protect } from '../middleware/authMiddleware.js';
@@ -31,5 +33,7 @@ router.post('/generate/bulk', generateBulkDues);
 router.post('/pay', payDue);
 router.post('/reject/initiate', initiateRejection);
 router.post('/reject/confirm', confirmRejection);
+router.get('/arrears', getArrearsSummary);
+router.post('/remind/summary', sendArrearsReminder);
 
 export default router;
