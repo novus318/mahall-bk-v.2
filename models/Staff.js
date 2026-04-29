@@ -57,9 +57,20 @@ const staffSchema = new mongoose.Schema({
         type: String,
         trim: true
     },
-    religion: {
+    religiousQualifications: {
         type: String,
         trim: true
+    },
+    aadhaarNumber: {
+        type: String,
+        trim: true
+    },
+    bankAccount: {
+        accountNumber: { type: String, trim: true },
+        ifscCode: { type: String, trim: true, uppercase: true },
+        bankName: { type: String, trim: true },
+        branchName: { type: String, trim: true },
+        accountHolderName: { type: String, trim: true }
     },
     otherAllowance: {
         type: Number,
