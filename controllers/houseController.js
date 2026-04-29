@@ -87,6 +87,39 @@ const getHouseById = async (req, res) => {
     }
 };
 
+// @desc    Get all houses without pagination
+// @route   GET /api/houses/all
+// @access  Public
+const getAllHouses = async (req, res) => {
+    try {
+        const query = {};
+
+        if (req.query.family) {
+            query.family = req.query.family;
+        }
+
+        if (req.query.search) {
+            query.$or = [
+                { name: { $regex: req.query.search, $options: 'i' } },
+                { customId: { $regex: req.query.search, $options: 'i' } },
+                { address: { $regex: req.query.search, $options: 'i' } }
+            ];
+        }
+
+        const houses = await House.find(query)
+            .populate('family', 'name customId')
+            .sort({ createdAt: -1 });
+
+        res.json({
+            status: true,
+            message: "Houses fetched successfully",
+            data: houses
+        });
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
 // @desc    Create a new house
 // @route   POST /api/houses
 // @access  Public
@@ -434,4 +467,4 @@ const bulkImportHouses = async (req, res) => {
     }
 };
 
-export { getHouses, getHouseById, createHouse, updateHouse, deleteHouse, bulkImportHouses };
+export { getHouses, getAllHouses, getHouseById, createHouse, updateHouse, deleteHouse, bulkImportHouses };
