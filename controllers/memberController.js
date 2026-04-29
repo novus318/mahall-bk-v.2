@@ -759,4 +759,35 @@ const moveOutMember = async (req, res) => {
     }
 };
 
-export { getMembers, getMemberById, createMember, updateMember, deleteMember, bulkImportMembers, moveOutMember };
+// @desc    Get all members without pagination
+// @route   GET /api/members/all
+// @access  Public
+const getAllMembers = async (req, res) => {
+    try {
+        const query = {};
+
+        if (req.query.family) query.family = req.query.family;
+        if (req.query.house) query.house = req.query.house;
+        if (req.query.gender && req.query.gender !== 'ALL') {
+            query.gender = req.query.gender;
+        }
+        if (req.query.status && req.query.status !== 'ALL') {
+            query.status = req.query.status;
+        }
+
+        const members = await Member.find(query)
+            .populate('house', 'name customId')
+            .populate('family', 'name customId')
+            .sort({ createdAt: -1 });
+
+        res.json({
+            status: true,
+            message: "Members fetched",
+            data: members
+        });
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+export { getMembers, getAllMembers, getMemberById, createMember, updateMember, deleteMember, bulkImportMembers, moveOutMember };

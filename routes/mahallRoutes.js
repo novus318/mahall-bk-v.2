@@ -2,7 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import { getFamilies, getFamilyById, getAllFamilies, createFamily, updateFamily, deleteFamily, bulkImportFamilies } from '../controllers/familyController.js';
 import { getHouses, getHouseById, createHouse, updateHouse, deleteHouse, bulkImportHouses } from '../controllers/houseController.js';
-import { getMembers, getMemberById, createMember, updateMember, deleteMember, bulkImportMembers, moveOutMember } from '../controllers/memberController.js';
+import { getMembers, getAllMembers, getMemberById, createMember, updateMember, deleteMember, bulkImportMembers, moveOutMember } from '../controllers/memberController.js';
 import { protect, authorize } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
@@ -41,6 +41,7 @@ router.route('/houses/import').post(authorize('admin', 'staff'), upload.single('
 router.route('/houses/:id').get(getHouseById).put(authorize('admin', 'staff'), updateHouse).delete(authorize('admin'), deleteHouse);
 
 router.route('/members').get(getMembers).post(authorize('admin', 'staff', 'data-entry'), createMember);
+router.route('/members/all').get(getAllMembers);
 router.route('/members/import').post(authorize('admin', 'staff'), upload.single('file'), bulkImportMembers);
 router.route('/members/:id').get(authorize('admin', 'staff'), getMemberById).put(authorize('admin', 'staff'), updateMember).delete(authorize('admin'), deleteMember);
 router.route('/members/:id/move-out').put(authorize('admin', 'staff'), moveOutMember);
