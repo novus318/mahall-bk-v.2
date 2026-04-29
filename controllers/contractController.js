@@ -119,17 +119,33 @@ const updateContract = async (req, res) => {
         const { tenant, endDate, rentAmount } = req.body;
         const contract = await Contract.findById(req.params.id);
 
-        if (contract) {
-            if (tenant) contract.tenant = { ...contract.tenant, ...tenant };
-            if (endDate) contract.endDate = endDate;
-            if (rentAmount) contract.rentAmount = rentAmount;
-
-            const updatedContract = await contract.save();
-            res.json(updatedContract);
-        } else {
-            res.status(404).json({ message: 'Contract not found' });
+        if (!contract) {
+            return res.status(404).json({ message: 'Contract not found' });
         }
+
+        // Update tenant details properly
+        if (tenant) {
+            contract.tenant = {
+                name: tenant.name ?? contract.tenant.name,
+                phone: tenant.phone ?? contract.tenant.phone,
+                adhaar: tenant.adhaar ?? contract.tenant.adhaar,
+                place: tenant.place ?? contract.tenant.place,
+                shopName: tenant.shopName !== undefined ? tenant.shopName : contract.tenant.shopName
+            };
+        }
+
+        if (endDate) contract.endDate = endDate;
+        if (rentAmount !== undefined) contract.rentAmount = rentAmount;
+
+        await contract.save();
+
+        // Fetch and return the populated contract (like GET endpoint does)
+        const updatedContract = await Contract.findById(contract._id)
+            .populate('rooms', 'roomNumber building status');
+            
+        res.json(updatedContract);
     } catch (error) {
+        console.error('Update contract error:', error);
         res.status(500).json({ message: error.message });
     }
 };
