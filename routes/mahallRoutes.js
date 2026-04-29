@@ -32,8 +32,8 @@ const upload = multer({
 router.use(protect);
 
 router.route('/families').get(getFamilies).post(authorize('admin', 'staff'), createFamily);
-router.route('/families/all').get(getAllFamilies);
 router.route('/families/import').post(authorize('admin', 'staff'), upload.single('file'), bulkImportFamilies);
+router.route('/families/all').get(getAllFamilies);
 router.route('/families/:id').get(getFamilyById).put(authorize('admin', 'staff'), updateFamily).delete(authorize('admin'), deleteFamily);
 
 router.route('/houses').get(getHouses).post(authorize('admin', 'staff'), createHouse);
