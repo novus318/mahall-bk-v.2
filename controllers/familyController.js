@@ -304,4 +304,33 @@ const bulkImportFamilies = async (req, res) => {
     }
 };
 
-export { getFamilies, getFamilyById, createFamily, updateFamily, deleteFamily, bulkImportFamilies };
+// @desc    Get all families without pagination (for dropdowns)
+// @route   GET /api/families/all
+// @access  Public
+const getAllFamilies = async (req, res) => {
+    try {
+        const search = req.query.search || '';
+        
+        const query = {};
+        if (search) {
+            query.$or = [
+                { name: { $regex: search, $options: 'i' } },
+                { customId: { $regex: search, $options: 'i' } }
+            ];
+        }
+
+        const families = await Family.find(query)
+            .select('name customId')
+            .sort({ name: 1 });
+
+        res.json({
+            status: true,
+            message: "Families fetched successfully",
+            data: families
+        });
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+export { getFamilies, getFamilyById, getAllFamilies, createFamily, updateFamily, deleteFamily, bulkImportFamilies };

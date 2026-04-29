@@ -1,6 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import { getFamilies, getFamilyById, createFamily, updateFamily, deleteFamily, bulkImportFamilies } from '../controllers/familyController.js';
+import { getFamilies, getFamilyById, getAllFamilies, createFamily, updateFamily, deleteFamily, bulkImportFamilies } from '../controllers/familyController.js';
 import { getHouses, getHouseById, createHouse, updateHouse, deleteHouse, bulkImportHouses } from '../controllers/houseController.js';
 import { getMembers, getMemberById, createMember, updateMember, deleteMember, bulkImportMembers, moveOutMember } from '../controllers/memberController.js';
 import { protect, authorize } from '../middleware/authMiddleware.js';
@@ -32,6 +32,7 @@ const upload = multer({
 router.use(protect);
 
 router.route('/families').get(getFamilies).post(authorize('admin', 'staff'), createFamily);
+router.route('/families/all').get(getAllFamilies);
 router.route('/families/import').post(authorize('admin', 'staff'), upload.single('file'), bulkImportFamilies);
 router.route('/families/:id').get(getFamilyById).put(authorize('admin', 'staff'), updateFamily).delete(authorize('admin'), deleteFamily);
 
