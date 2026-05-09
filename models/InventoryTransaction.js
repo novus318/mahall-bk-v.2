@@ -44,6 +44,15 @@ const inventoryTransactionSchema = new Schema({
     returnedDate: {
         type: Date
     },
+    payments: [{
+        amount: { type: Number, required: true },
+        date: { type: Date, default: Date.now },
+        accountId: { type: Schema.Types.ObjectId, ref: 'Account' }
+    }],
+    receiptId: {
+        type: Schema.Types.ObjectId,
+        ref: 'InventoryReceipt'
+    },
     notes: String
 }, {
     timestamps: true

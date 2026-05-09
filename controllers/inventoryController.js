@@ -1,7 +1,14 @@
 import InventoryItem from '../models/InventoryItem.js';
 import InventoryTransaction from '../models/InventoryTransaction.js';
 import mongoose from 'mongoose';
-
+import Account from '../models/Account.js';
+import AccountTransaction from '../models/AccountTransaction.js';
+import InventoryReceipt from '../models/InventoryReceipt.js';
+import SystemSettings from '../models/SystemSettings.js';
+import WhatsAppContact from '../models/WhatsAppContact.js';
+import WhatsAppMessage from '../models/WhatsAppMessage.js';
+import axios from 'axios';
+import PDFDocument from 'pdfkit';
 // @desc    Get all inventory items with Pagination & Search
 // @route   GET /api/inventory/items
 export const getItems = async (req, res) => {
@@ -257,6 +264,220 @@ export const returnTransaction = async (req, res) => {
 
         res.json({ status: true, message: 'Items returned successfully' });
     } catch (error) {
+        console.error(error);
         res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+// @desc    Pay Inventory Rent
+// @route   POST /api/inventory/transactions/:id/pay
+export const payRent = async (req, res) => {
+    try {
+        const { accountId, amountPaid } = req.body;
+        const transaction = await InventoryTransaction.findById(req.params.id).populate('itemId');
+        
+        if (!transaction) return res.status(404).json({ status: false, message: 'Transaction not found' });
+        if (!accountId) return res.status(400).json({ status: false, message: 'Deposit Account is required' });
+        if (!amountPaid || Number(amountPaid) <= 0) return res.status(400).json({ status: false, message: 'Valid amount required' });
+
+        const paymentAmount = Number(amountPaid);
+        const account = await Account.findById(accountId);
+        if (!account) return res.status(404).json({ status: false, message: 'Account not found' });
+
+        // Record Partial Payment
+        transaction.payments.push({
+            amount: paymentAmount,
+            date: Date.now(),
+            accountId: account._id
+        });
+
+        transaction.paidAmount = (transaction.paidAmount || 0) + paymentAmount;
+        
+        // Update Account Balance
+        account.balance += paymentAmount;
+        await account.save();
+
+        let receipt = null;
+        let receiptNo = null;
+
+        // Check if fully paid to generate Official Receipt
+        if (transaction.paidAmount >= transaction.totalRentAmount && !transaction.receiptId) {
+            const count = await InventoryReceipt.countDocuments();
+            receiptNo = `INV-RC-${new Date().getFullYear()}-${count + 1}`;
+
+            receipt = await InventoryReceipt.create({
+                receiptNo,
+                amount: transaction.totalRentAmount, // Receipt is for the full amount
+                transactionId: transaction._id,
+                account: account._id,
+                payerName: transaction.customerName,
+                payerPhone: transaction.customerPhone,
+                description: `Full Rent payment for ${transaction.itemId?.name || 'Item'}`,
+                createdBy: req.user ? req.user._id : undefined
+            });
+
+            transaction.receiptId = receipt._id;
+        }
+
+        await transaction.save();
+
+        // Log Transaction to Account
+        await AccountTransaction.create({
+            account: account._id,
+            inventoryReceipt: receipt ? receipt._id : undefined,
+            type: 'INCOME',
+            amount: paymentAmount,
+            balanceAfter: account.balance,
+            description: receiptNo ? `Inventory Rent: ${receiptNo} from ${transaction.customerName}` : `Partial Rent payment for ${transaction.itemId?.name} from ${transaction.customerName}`
+        });
+
+        // Send WhatsApp Notification if phone is available
+        if (transaction.customerPhone && process.env.WHATSAPP_TOKEN && process.env.WHATSAPP_API_URL) {
+            try {
+                let phone = transaction.customerPhone.replace(/\D/g, '');
+                if (phone.length === 10) phone = `91${phone}`;
+                
+                let contact = await WhatsAppContact.findOne({ phoneNumber: phone });
+                if (!contact) {
+                    contact = await WhatsAppContact.create({
+                        phoneNumber: phone,
+                        profileName: transaction.customerName,
+                        displayName: transaction.customerName,
+                        type: 'UNKNOWN'
+                    });
+                }
+
+                let messageBody = `Hello ${transaction.customerName},\n\nWe have received your rent payment of ₹${paymentAmount} for *${transaction.itemId?.name || 'Item'}*.`;
+                
+                if (receiptNo) {
+                    messageBody += `\nOfficial Receipt No: ${receiptNo}`;
+                }
+
+                const pendingAmount = transaction.totalRentAmount - transaction.paidAmount;
+                if (pendingAmount > 0) {
+                    messageBody += `\n\nRemaining Balance: ₹${pendingAmount}.`;
+                } else {
+                    messageBody += `\n\nYour rent is now fully paid.`;
+                }
+                messageBody += `\n\nThank you!`;
+
+                await axios.post(process.env.WHATSAPP_API_URL, {
+                    messaging_product: 'whatsapp',
+                    recipient_type: 'individual',
+                    to: phone,
+                    type: 'text',
+                    text: { body: messageBody }
+                }, {
+                    headers: { 'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}`, 'Content-Type': 'application/json' }
+                });
+
+                contact.lastMessage = `You: ${messageBody.substring(0, 50)}...`;
+                contact.lastMessageAt = new Date();
+                await contact.save();
+            } catch (waError) {
+                console.error("WhatsApp Error:", waError.message);
+            }
+        }
+
+        res.json({ status: true, message: 'Payment recorded successfully', data: transaction });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+// @desc    Get Payments (Ledger) for Transaction
+// @route   GET /api/inventory/transactions/:id/receipts
+export const getTransactionReceipts = async (req, res) => {
+    try {
+        const transaction = await InventoryTransaction.findById(req.params.id).populate('payments.accountId', 'name');
+        if (!transaction) return res.status(404).json({ status: false, message: 'Transaction not found' });
+        
+        let receipt = null;
+        if (transaction.receiptId) {
+            receipt = await InventoryReceipt.findById(transaction.receiptId);
+        }
+
+        // Return payments array and final receipt if available
+        res.json({ status: true, data: { payments: transaction.payments.reverse(), receipt } });
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+// @desc    Download Inventory Receipt PDF
+// @route   GET /api/inventory/receipts/:id/pdf
+export const downloadInventoryReceiptPdf = async (req, res) => {
+    try {
+        const receipt = await InventoryReceipt.findById(req.params.id).populate({
+            path: 'transactionId',
+            populate: { path: 'itemId' }
+        });
+
+        if (!receipt) return res.status(404).json({ status: false, message: 'Receipt not found' });
+
+        const doc = new PDFDocument({ size: 'A5', margin: 40 });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename=Inventory-Receipt-${receipt.receiptNo}.pdf`);
+        doc.pipe(res);
+
+        const MARGIN = 40;
+        const PAGE_WIDTH = 420;
+        const CONTENT_WIDTH = PAGE_WIDTH - (MARGIN * 2);
+        let y = MARGIN;
+
+        // Header
+        doc.font('Helvetica-Bold').fontSize(16).text('THAYINERI JUMA MASJID', MARGIN, y, { width: CONTENT_WIDTH, align: 'center' });
+        y += 18;
+        doc.font('Helvetica').fontSize(9).text('(TMJ)', MARGIN, y, { width: CONTENT_WIDTH, align: 'center' });
+        y += 15;
+        doc.fontSize(8).text('458X+XVH, Thayineri Road, Thrikaripur, Kerala 670307', MARGIN, y, { width: CONTENT_WIDTH, align: 'center' });
+        y += 20;
+
+        doc.lineWidth(1).moveTo(MARGIN, y).lineTo(PAGE_WIDTH - MARGIN, y).stroke();
+        y += 15;
+
+        // Title
+        doc.font('Helvetica-Bold').fontSize(12).text('INVENTORY RENTAL RECEIPT', MARGIN, y, { width: CONTENT_WIDTH, align: 'center' });
+        y += 20;
+
+        // Info Box
+        doc.rect(MARGIN, y, CONTENT_WIDTH, 50).stroke();
+        const midX = MARGIN + (CONTENT_WIDTH / 2);
+        doc.moveTo(midX, y).lineTo(midX, y + 50).stroke();
+
+        doc.font('Helvetica-Bold').fontSize(8).text('Receipt No:', MARGIN + 8, y + 10);
+        doc.font('Helvetica').text(receipt.receiptNo, MARGIN + 60, y + 10);
+        doc.font('Helvetica-Bold').text('Date:', MARGIN + 8, y + 25);
+        doc.font('Helvetica').text(new Date(receipt.date).toLocaleDateString(), MARGIN + 60, y + 25);
+
+        doc.font('Helvetica-Bold').text('From:', midX + 8, y + 10);
+        doc.font('Helvetica').text(receipt.payerName, midX + 45, y + 10);
+
+        y += 65;
+
+        // Table
+        doc.rect(MARGIN, y, CONTENT_WIDTH, 20).fillAndStroke('#000000', '#000000');
+        doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(9)
+            .text('Description', MARGIN + 8, y + 6)
+            .text('Amount (Rs.)', MARGIN, y + 6, { align: 'right', width: CONTENT_WIDTH - 8 });
+        y += 20;
+
+        doc.rect(MARGIN, y, CONTENT_WIDTH, 30).stroke();
+        doc.fillColor('#000000').font('Helvetica').fontSize(9)
+            .text(receipt.description, MARGIN + 8, y + 10, { width: CONTENT_WIDTH * 0.6 })
+            .text(receipt.amount.toFixed(2), MARGIN, y + 10, { align: 'right', width: CONTENT_WIDTH - 8 });
+        y += 30;
+
+        // Total
+        doc.rect(MARGIN, y, CONTENT_WIDTH, 20).fillAndStroke('#f0f0f0', '#000000');
+        doc.fillColor('#000000').font('Helvetica-Bold').fontSize(10)
+            .text('Total Amount', MARGIN + 8, y + 6)
+            .text(`Rs. ${receipt.amount.toFixed(2)}`, MARGIN, y + 6, { align: 'right', width: CONTENT_WIDTH - 8 });
+
+        doc.end();
+    } catch (error) {
+        console.error(error);
+        if (!res.headersSent) res.status(500).json({ status: false, message: error.message });
     }
 };

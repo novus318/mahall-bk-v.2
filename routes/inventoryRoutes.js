@@ -7,7 +7,10 @@ import {
     createTransaction,
     returnTransaction,
     getItemRestockHistory,
-    reportDamage
+    reportDamage,
+    payRent,
+    getTransactionReceipts,
+    downloadInventoryReceiptPdf
 } from '../controllers/inventoryController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
@@ -26,5 +29,9 @@ router.route('/transactions')
     .post(protect, createTransaction);
 
 router.route('/transactions/:id/return').put(protect, returnTransaction);
+router.route('/transactions/:id/pay').post(protect, payRent);
+router.route('/transactions/:id/receipts').get(protect, getTransactionReceipts);
+
+router.route('/receipts/:id/pdf').get(protect, downloadInventoryReceiptPdf);
 
 export default router;

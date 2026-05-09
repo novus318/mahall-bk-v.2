@@ -22,6 +22,10 @@ const accountTransactionSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'CollectionReceipt'
     },
+    inventoryReceipt: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'InventoryReceipt'
+    },
     staff: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Staff'
