@@ -10,7 +10,8 @@ import {
     reportDamage,
     payRent,
     getTransactionReceipts,
-    downloadInventoryReceiptPdf
+    downloadInventoryReceiptPdf,
+    updateItem
 } from '../controllers/inventoryController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
@@ -20,6 +21,8 @@ router.route('/items')
     .get(protect, getItems)
     .post(protect, createItem);
 
+router.route('/items/:id')
+    .put(protect, updateItem);
 router.route('/items/:id/restock').put(protect, restockItem);
 router.route('/items/:id/damage').put(protect, reportDamage);
 router.route('/items/:id/restock-history').get(protect, getItemRestockHistory);

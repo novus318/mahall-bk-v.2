@@ -3,18 +3,32 @@ import mongoose from 'mongoose';
 const { Schema } = mongoose;
 
 const inventoryTransactionSchema = new Schema({
-    itemId: {
-        type: Schema.Types.ObjectId,
-        ref: 'InventoryItem',
-        required: true
-    },
+    items: [{
+        itemId: {
+            type: Schema.Types.ObjectId,
+            ref: 'InventoryItem',
+            required: true
+        },
+        quantity: {
+            type: Number,
+            required: true
+        },
+        rentPerUnit: {
+            type: Number,
+            default: 0
+        },
+        amount: {
+            type: Number,
+            default: 0
+        },
+        returnedQuantity: {
+            type: Number,
+            default: 0
+        }
+    }],
     typ: {
         type: String,
         enum: ['RENT_OUT', 'USE_INTERNAL', 'RETURN'], // RENT_OUT is for external customers, USE_INTERNAL for mahal use
-        required: true
-    },
-    quantity: {
-        type: Number,
         required: true
     },
     customerName: {
@@ -34,7 +48,7 @@ const inventoryTransactionSchema = new Schema({
     },
     status: {
         type: String,
-        enum: ['ACTIVE', 'RETURNED'],
+        enum: ['ACTIVE', 'PARTIAL_RETURNED', 'RETURNED'],
         default: 'ACTIVE'
     },
     issuedDate: {

@@ -24,10 +24,15 @@ export const getItems = async (req, res) => {
         }
 
         const total = await InventoryItem.countDocuments(filter);
-        const items = await InventoryItem.find(filter)
-            .sort('-name')
-            .skip(skip)
-            .limit(limit);
+        let items;
+        if (req.query.all === 'true') {
+            items = await InventoryItem.find(filter).sort('-name');
+        } else {
+            items = await InventoryItem.find(filter)
+                .sort('-name')
+                .skip(skip)
+                .limit(limit);
+        }
 
         res.json({
             status: true,
@@ -58,7 +63,30 @@ export const createItem = async (req, res) => {
         });
         res.status(201).json({ status: true, data: item });
     } catch (error) {
-        res.status(400).json({ status: false, message: error.message });
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+// @desc    Update an item
+// @route   PUT /api/inventory/items/:id
+export const updateItem = async (req, res) => {
+    try {
+        const { name, averageValue, rentalRate } = req.body;
+        const item = await InventoryItem.findById(req.params.id);
+        
+        if (!item) {
+            return res.status(404).json({ status: false, message: 'Item not found' });
+        }
+
+        item.name = name || item.name;
+        item.averageValue = averageValue !== undefined ? averageValue : item.averageValue;
+        item.rentalRate = rentalRate !== undefined ? rentalRate : item.rentalRate;
+
+        await item.save();
+
+        res.json({ status: true, message: 'Item updated successfully', data: item });
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
     }
 };
 
@@ -132,11 +160,11 @@ export const getTransactions = async (req, res) => {
         // Build filter object
         const filter = {};
         if (!req.query.all) filter.status = 'ACTIVE'; // Default to active only unless ?all=true
-        if (req.query.itemId) filter.itemId = req.query.itemId; // Filter by specific item
+        if (req.query.itemId) filter['items.itemId'] = req.query.itemId; // Filter by specific item
 
         const total = await InventoryTransaction.countDocuments(filter);
         const transactions = await InventoryTransaction.find(filter)
-            .populate('itemId', 'name rentalRate')
+            .populate('items.itemId', 'name rentalRate')
             .sort('-issuedDate')
             .skip(skip)
             .limit(limit);
@@ -205,38 +233,64 @@ export const getItemRestockHistory = async (req, res) => {
 // @route   POST /api/inventory/transactions
 export const createTransaction = async (req, res) => {
     // typ: 'RENT_OUT' | 'USE_INTERNAL'
-    const { itemId, typ, quantity, customerName, customerPhone, notes, rentPerUnit } = req.body;
+    const { items, typ, customerName, customerPhone, notes } = req.body;
     try {
-        const item = await InventoryItem.findById(itemId);
-        if (!item) return res.status(404).json({ status: false, message: 'Item not found' });
-
-        if (item.availableQuantity < quantity) {
-            return res.status(400).json({ status: false, message: `Only ${item.availableQuantity} available` });
+        if (!items || !Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ status: false, message: 'No items provided' });
         }
 
-        let rentAmount = 0;
-        if (typ === 'RENT_OUT') {
-            const rate = rentPerUnit !== undefined ? Number(rentPerUnit) : item.rentalRate;
-            rentAmount = Number(quantity) * rate;
+        let totalRentAmount = 0;
+        const processedItems = [];
+        const itemsToUpdate = [];
+
+        // Validate stock and calculate rent for all items first
+        for (const reqItem of items) {
+            const item = await InventoryItem.findById(reqItem.itemId);
+            if (!item) return res.status(404).json({ status: false, message: `Item not found: ${reqItem.itemId}` });
+
+            if (item.availableQuantity < reqItem.quantity) {
+                return res.status(400).json({ status: false, message: `Only ${item.availableQuantity} available for ${item.name}` });
+            }
+
+            let amount = 0;
+            if (typ === 'RENT_OUT') {
+                const rate = reqItem.rentPerUnit !== undefined ? Number(reqItem.rentPerUnit) : item.rentalRate;
+                amount = Number(reqItem.quantity) * rate;
+            }
+
+            processedItems.push({
+                itemId: item._id,
+                quantity: reqItem.quantity,
+                rentPerUnit: reqItem.rentPerUnit !== undefined ? Number(reqItem.rentPerUnit) : item.rentalRate,
+                amount: amount,
+                returnedQuantity: 0
+            });
+
+            totalRentAmount += amount;
+            
+            // Queue for update
+            item.availableQuantity -= Number(reqItem.quantity);
+            itemsToUpdate.push(item);
         }
 
         const transaction = await InventoryTransaction.create({
-            itemId,
+            items: processedItems,
             typ,
-            quantity,
             customerName: typ === 'RENT_OUT' ? customerName : 'INTERNAL',
             customerPhone,
-            totalRentAmount: rentAmount,
+            totalRentAmount,
             notes,
             status: 'ACTIVE'
         });
 
-        // Decrement available quantity
-        item.availableQuantity -= Number(quantity);
-        await item.save();
+        // Save all updated items
+        for (const item of itemsToUpdate) {
+            await item.save();
+        }
 
         res.status(201).json({ status: true, data: transaction });
     } catch (error) {
+        console.error("Create Transaction Error:", error);
         res.status(500).json({ status: false, message: error.message });
     }
 };
@@ -252,10 +306,18 @@ export const returnTransaction = async (req, res) => {
             return res.status(400).json({ status: false, message: 'Already returned' });
         }
 
-        const item = await InventoryItem.findById(transaction.itemId);
-        if (item) {
-            item.availableQuantity += transaction.quantity;
-            await item.save();
+        // Restore all items
+        for (const reqItem of transaction.items) {
+            const item = await InventoryItem.findById(reqItem.itemId);
+            if (item) {
+                // If partial return is implemented later, check reqItem.returnedQuantity vs quantity
+                const unreturnedQty = reqItem.quantity - reqItem.returnedQuantity;
+                if (unreturnedQty > 0) {
+                    item.availableQuantity += unreturnedQty;
+                    reqItem.returnedQuantity = reqItem.quantity;
+                    await item.save();
+                }
+            }
         }
 
         transaction.status = 'RETURNED';
@@ -274,7 +336,7 @@ export const returnTransaction = async (req, res) => {
 export const payRent = async (req, res) => {
     try {
         const { accountId, amountPaid } = req.body;
-        const transaction = await InventoryTransaction.findById(req.params.id).populate('itemId');
+        const transaction = await InventoryTransaction.findById(req.params.id).populate('items.itemId');
         
         if (!transaction) return res.status(404).json({ status: false, message: 'Transaction not found' });
         if (!accountId) return res.status(400).json({ status: false, message: 'Deposit Account is required' });
@@ -300,6 +362,8 @@ export const payRent = async (req, res) => {
         let receipt = null;
         let receiptNo = null;
 
+        const combinedItemNames = transaction.items.map(i => i.itemId?.name || 'Item').join(', ');
+
         // Check if fully paid to generate Official Receipt
         if (transaction.paidAmount >= transaction.totalRentAmount && !transaction.receiptId) {
             const count = await InventoryReceipt.countDocuments();
@@ -312,7 +376,7 @@ export const payRent = async (req, res) => {
                 account: account._id,
                 payerName: transaction.customerName,
                 payerPhone: transaction.customerPhone,
-                description: `Full Rent payment for ${transaction.itemId?.name || 'Item'}`,
+                description: `Full Rent payment for ${combinedItemNames}`,
                 createdBy: req.user ? req.user._id : undefined
             });
 
@@ -328,7 +392,7 @@ export const payRent = async (req, res) => {
             type: 'INCOME',
             amount: paymentAmount,
             balanceAfter: account.balance,
-            description: receiptNo ? `Inventory Rent: ${receiptNo} from ${transaction.customerName}` : `Partial Rent payment for ${transaction.itemId?.name} from ${transaction.customerName}`
+            description: receiptNo ? `Inventory Rent: ${receiptNo} from ${transaction.customerName}` : `Partial Rent payment for ${combinedItemNames} from ${transaction.customerName}`
         });
 
         // Send WhatsApp Notification if phone is available
@@ -347,7 +411,7 @@ export const payRent = async (req, res) => {
                     });
                 }
 
-                let messageBody = `Hello ${transaction.customerName},\n\nWe have received your rent payment of ₹${paymentAmount} for *${transaction.itemId?.name || 'Item'}*.`;
+                let messageBody = `Hello ${transaction.customerName},\n\nWe have received your rent payment of ₹${paymentAmount} for *${combinedItemNames}*.`;
                 
                 if (receiptNo) {
                     messageBody += `\nOfficial Receipt No: ${receiptNo}`;
@@ -411,7 +475,7 @@ export const downloadInventoryReceiptPdf = async (req, res) => {
     try {
         const receipt = await InventoryReceipt.findById(req.params.id).populate({
             path: 'transactionId',
-            populate: { path: 'itemId' }
+            populate: { path: 'items.itemId' }
         });
 
         if (!receipt) return res.status(404).json({ status: false, message: 'Receipt not found' });
