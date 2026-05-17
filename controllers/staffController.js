@@ -12,7 +12,7 @@ import mongoose from 'mongoose';
 // @access  Private
 export const createStaff = async (req, res) => {
     try {
-        const { name, dob, employeeId, department, position, baseSalary, phone, email, joinDate } = req.body;
+        const { name, dob, employeeId, department, position, baseSalary, phone, email, joinDate, address, emergencyContact, qualifications, religiousQualifications, aadhaarNumber, bankAccount, otherAllowance, jobDescription, additionalInfo } = req.body;
 
         const staffExists = await Staff.findOne({ employeeId });
         if (staffExists) {
@@ -28,7 +28,16 @@ export const createStaff = async (req, res) => {
             baseSalary,
             phone,
             email,
-            joinDate: joinDate || Date.now()
+            joinDate: joinDate || Date.now(),
+            address,
+            emergencyContact,
+            qualifications,
+            religiousQualifications,
+            aadhaarNumber,
+            bankAccount,
+            otherAllowance: otherAllowance || 0,
+            jobDescription,
+            additionalInfo
         });
 
         res.status(201).json({
