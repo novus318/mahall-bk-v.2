@@ -209,7 +209,7 @@ export const generateBulkDuesInternal = async ({ entityType, period, frequency =
                         customId: entity.customId,
                         period: targetPeriod,
                         amount: entity.subscription.amount,
-                        dueId: due._id.toString()
+                        dueId: (type === 'House' ? 'hou/' : 'mem/') + entity._id.toString()
                     });
                 }
             }

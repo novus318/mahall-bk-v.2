@@ -360,8 +360,8 @@ export const initiatePayslipRejection = async (req, res) => {
                     to: contact.number,
                     type: 'template',
                     template: {
-                        name: 'user_auth',
-                        language: { code: 'en_US' },
+                        name: 'otp',
+                        language: { code: 'en' },
                         components: [
                             { type: 'body', parameters: [{ type: 'text', text: otp }] },
                             { type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: otp }] },

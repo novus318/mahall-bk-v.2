@@ -30,7 +30,7 @@ const updateSubscription = async (req, res) => {
         if (frequency && currentFrequency && frequency !== currentFrequency && currentFrequency !== 'None') {
             const pendingDues = await CollectionDue.countDocuments({
                 entityId: id,
-                status: { $ne: 'PAID' },
+                status: { $in: ['PENDING', 'PARTIAL'] },
                 frequency: currentFrequency
             });
 
@@ -286,8 +286,8 @@ const initiateRejection = async (req, res) => {
                 to: contact.number,
                 type: 'template',
                 template: {
-                    name: 'user_auth', // TEMPLATE NAME from user request
-                    language: { code: 'en_US' },
+                    name: 'otp', // TEMPLATE NAME from user request
+                    language: { code: 'en' },
                     components: [
                         {
                             type: 'body',
@@ -953,7 +953,7 @@ const sendArrearsReminder = async (req, res) => {
                         sub_type: 'url',
                         index: '0',
                         parameters: [
-                            { type: 'text', text: entityId } // Suffix for the Pay Now button
+                            { type: 'text', text: (entityType === 'House' ? 'hou/' : 'mem/') + entityId }
                         ]
                     }
                 ]
@@ -975,6 +975,53 @@ const sendArrearsReminder = async (req, res) => {
     }
 };
 
+const getPublicEntityDetails = async (req, res) => {
+    try {
+        const { type, id } = req.params;
+        const isHouse = type === 'hou';
+
+        if (isHouse) {
+            const house = await House.findById(id)
+                .populate('family', 'name customId')
+                .populate('head', 'name customId phone');
+            if (!house) return res.status(404).json({ status: false, message: 'House not found' });
+            res.json({ status: true, data: house });
+        } else {
+            const member = await Member.findById(id)
+                .populate('house', 'name customId')
+                .populate('family', 'name customId');
+            if (!member) return res.status(404).json({ status: false, message: 'Member not found' });
+            res.json({ status: true, data: member });
+        }
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+const getPublicEntityDues = async (req, res) => {
+    try {
+        const { type, id } = req.params;
+        const entityType = type === 'hou' ? 'House' : 'Member';
+
+        const dues = await CollectionDue.find({ entityId: id, entityType })
+            .populate({
+                path: 'entityId',
+                select: 'name customId houseId',
+                populate: { path: 'houseId', select: 'customId', strictPopulate: false }
+            })
+            .populate({
+                path: 'transactions.receiptId',
+                select: 'account receiptNo',
+                populate: { path: 'account', select: 'name _id type' }
+            })
+            .sort({ createdAt: -1 });
+
+        res.json({ status: true, data: dues });
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
 export {
     updateSubscription,
     getDues,
@@ -987,5 +1034,7 @@ export {
     getCollectionPeriods,
     generateBulkDues,
     getArrearsSummary,
-    sendArrearsReminder
+    sendArrearsReminder,
+    getPublicEntityDues,
+    getPublicEntityDetails
 };
