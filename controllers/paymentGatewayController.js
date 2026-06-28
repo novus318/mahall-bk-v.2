@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import Razorpay from 'razorpay';
 import Receipt from '../models/Receipt.js';
 import ReceiptCategory from '../models/ReceiptCategory.js';
@@ -8,7 +9,6 @@ import CollectionReceipt from '../models/CollectionReceipt.js';
 import House from '../models/House.js';
 import Member from '../models/Member.js';
 import SystemSettings from '../models/SystemSettings.js';
-import { validateWebhookSignature } from 'razorpay/dist/utils/razorpay-utils.js';
 
 const razorpay = new Razorpay({
     key_id: process.env.RAZORPAY_KEY_ID,
@@ -48,9 +48,12 @@ export const handleWebhook = async (req, res) => {
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
     const signature = req.headers['x-razorpay-signature'];
 
-    const isValid = validateWebhookSignature(JSON.stringify(req.body), signature, secret);
+    const expectedSignature = crypto
+        .createHmac('sha256', secret)
+        .update(JSON.stringify(req.body))
+        .digest('hex');
 
-    if (!isValid) {
+    if (expectedSignature !== signature) {
         console.error('Razorpay Webhook Signature Mismatch');
         return res.status(400).json({ status: 'invalid_signature' });
     }
