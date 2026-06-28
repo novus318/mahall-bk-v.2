@@ -4,6 +4,6 @@ import { createOrder, handleWebhook } from '../controllers/paymentGatewayControl
 const router = express.Router();
 
 router.post('/create-order', createOrder);
-router.post('/webhook', express.raw({ type: 'application/json' }), handleWebhook);
+router.post('/webhook', handleWebhook);
 
 export default router;

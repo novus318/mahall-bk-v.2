@@ -45,173 +45,160 @@ export const createOrder = async (req, res) => {
 };
 
 export const handleWebhook = async (req, res) => {
-    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
     const signature = req.headers['x-razorpay-signature'];
-    const rawBody = req.body;
+    const isValid = validateWebhookSignature(
+        JSON.stringify(req.body),
+        signature,
+        process.env.RAZORPAY_WEBHOOK_SECRET
+    );
 
-    const isValid = validateWebhookSignature(rawBody.toString(), signature, secret);
+    if (isValid) {
+        const { event, payload } = req.body;
 
-    if (!isValid) {
-        console.error('Razorpay Webhook Signature Mismatch');
-        return res.status(400).json({ status: 'invalid_signature' });
-    }
+        switch (event) {
+            case 'payment.captured': {
+                try {
+                    const payment = payload.payment.entity;
+                    const amount = payment.amount / 100;
+                    const notes = payment.notes || {};
 
-    const event = JSON.parse(rawBody.toString());
+                    if (notes.dueId) {
+                        const due = await CollectionDue.findById(notes.dueId);
+                        if (!due) {
+                            console.error('CollectionDue not found:', notes.dueId);
+                            break;
+                        }
 
-    if (event.event === 'payment.captured') {
-        try {
-            const payment = event.payload.payment.entity;
-            const amount = payment.amount / 100;
-            const notes = payment.notes || {};
+                        const remaining = due.amount - due.paidAmount;
+                        const payAmount = Math.min(amount, remaining);
 
-            if (notes.dueId) {
-                // Collection Due Payment
-                const due = await CollectionDue.findById(notes.dueId);
-                if (!due) {
-                    console.error('CollectionDue not found:', notes.dueId);
-                    return res.status(200).json({ status: 'ignored', reason: 'Due not found' });
+                        let settings = await SystemSettings.findOne();
+                        if (!settings) {
+                            settings = await SystemSettings.create({});
+                        }
+                        const prefix = settings.collectionSettings?.receiptPrefix || 'MC-';
+                        const nextNum = settings.collectionSettings?.receiptCurrentNumber || 1;
+                        const receiptNo = `${prefix}${new Date().getFullYear()}-${nextNum}`;
+
+                        const entityType = due.entityType;
+                        let payerName = notes.name || 'Online Payment';
+                        if (entityType === 'House') {
+                            const h = await House.findById(due.entityId);
+                            if (h) payerName = `${h.name} (${h.customId})`;
+                        } else {
+                            const m = await Member.findById(due.entityId);
+                            if (m) payerName = `${m.name} (${m.customId})`;
+                        }
+
+                        const account = await Account.findOne({ isPrimary: true });
+                        if (!account) {
+                            console.error('No Primary Account found');
+                            break;
+                        }
+
+                        const receipt = await CollectionReceipt.create({
+                            receiptNo,
+                            amount: payAmount,
+                            date: new Date(),
+                            account: account._id,
+                            dueId: due._id,
+                            payer: {
+                                name: payerName,
+                                entityType,
+                                entityId: due.entityId
+                            },
+                            description: `Online payment for ${due.period} (${due.frequency}) - Razorpay Ref: ${payment.id}`,
+                            mode: 'ONLINE'
+                        });
+
+                        await SystemSettings.updateOne(
+                            { _id: settings._id },
+                            { $inc: { 'collectionSettings.receiptCurrentNumber': 1 } }
+                        );
+
+                        due.paidAmount += payAmount;
+                        due.transactions.push({
+                            date: new Date(),
+                            amount: payAmount,
+                            receiptId: receipt._id,
+                            notes: `Razorpay: ${payment.id}`
+                        });
+                        due.status = due.paidAmount >= due.amount ? 'PAID' : 'PARTIAL';
+                        await due.save();
+
+                        account.balance += payAmount;
+                        await account.save();
+
+                        await AccountTransaction.create({
+                            account: account._id,
+                            type: 'INCOME',
+                            amount: payAmount,
+                            balanceAfter: account.balance,
+                            date: new Date(),
+                            description: `Collection from ${payerName} - ${due.period} (${due.frequency})`,
+                            collectionReceipt: receipt._id
+                        });
+
+                        console.log(`Razorpay Collection Receipt: ${receiptNo} for ₹${payAmount}`);
+                    } else {
+                        const donorName = notes.donor_name || notes.name || 'Anonymous';
+                        const donorPhone = payment.contact || notes.contact || '';
+                        const description = notes.description || 'Online Donation';
+
+                        const account = await Account.findOne({ isPrimary: true });
+                        if (!account) {
+                            console.error('No Primary Account found');
+                            break;
+                        }
+
+                        const categoryName = notes.category || 'Donation';
+                        let category = await ReceiptCategory.findOne({ name: { $regex: new RegExp(`^${categoryName}$`, 'i') } });
+                        if (!category) {
+                            category = await ReceiptCategory.create({
+                                name: categoryName,
+                                type: 'INCOME',
+                                description: 'Auto-created from Online Payment'
+                            });
+                        }
+
+                        const receiptNo = `ONL-${Date.now()}`;
+
+                        await Receipt.create({
+                            receiptNo,
+                            date: new Date(),
+                            amount,
+                            type: 'INCOME',
+                            category: category._id,
+                            account: account._id,
+                            payer: donorName,
+                            payerContact: donorPhone,
+                            description: `${description} (Razorpay Ref: ${payment.id})`,
+                            items: [{ description, amount }]
+                        });
+
+                        account.balance += amount;
+                        await account.save();
+
+                        await AccountTransaction.create({
+                            account: account._id,
+                            type: 'INCOME',
+                            amount,
+                            balanceAfter: account.balance,
+                            date: new Date(),
+                            description: `Receipt ${receiptNo} from ${donorName}`
+                        });
+
+                        console.log(`Razorpay Donation Receipt: ${receiptNo} for ₹${amount}`);
+                    }
+                } catch (error) {
+                    console.error('Razorpay payment.captured error:', error);
                 }
-
-                const remaining = due.amount - due.paidAmount;
-                const payAmount = Math.min(amount, remaining);
-
-                // Generate receipt number
-                let settings = await SystemSettings.findOne();
-                if (!settings) {
-                    settings = await SystemSettings.create({});
-                }
-                const prefix = settings.collectionSettings?.receiptPrefix || 'MC-';
-                const nextNum = settings.collectionSettings?.receiptCurrentNumber || 1;
-                const receiptNo = `${prefix}${new Date().getFullYear()}-${nextNum}`;
-
-                // Determine entity info from the due itself
-                const entityType = due.entityType;
-                let payerName = notes.name || 'Online Payment';
-                if (entityType === 'House') {
-                    const h = await House.findById(due.entityId);
-                    if (h) payerName = `${h.name} (${h.customId})`;
-                } else {
-                    const m = await Member.findById(due.entityId);
-                    if (m) payerName = `${m.name} (${m.customId})`;
-                }
-
-                // Find primary account for the money to go into
-                const account = await Account.findOne({ isPrimary: true });
-                if (!account) {
-                    console.error('No Primary Account found for Razorpay Collection Receipt');
-                    return res.status(200).json({ status: 'ignored', reason: 'No primary account' });
-                }
-
-                // Create CollectionReceipt
-                const receipt = await CollectionReceipt.create({
-                    receiptNo,
-                    amount: payAmount,
-                    date: new Date(),
-                    account: account._id,
-                    dueId: due._id,
-                    payer: {
-                        name: payerName,
-                        entityType,
-                        entityId: due.entityId
-                    },
-                    description: `Online payment for ${due.period} (${due.frequency}) - Razorpay Ref: ${payment.id}`,
-                    mode: 'ONLINE'
-                });
-
-                // Update SystemSettings receipt number
-                await SystemSettings.updateOne(
-                    { _id: settings._id },
-                    { $inc: { 'collectionSettings.receiptCurrentNumber': 1 } }
-                );
-
-                // Update Due
-                due.paidAmount += payAmount;
-                due.transactions.push({
-                    date: new Date(),
-                    amount: payAmount,
-                    receiptId: receipt._id,
-                    notes: `Razorpay: ${payment.id}`
-                });
-                due.status = due.paidAmount >= due.amount ? 'PAID' : 'PARTIAL';
-                await due.save();
-
-                // Update Account Balance & Transaction
-                account.balance += payAmount;
-                await account.save();
-
-                await AccountTransaction.create({
-                    account: account._id,
-                    type: 'INCOME',
-                    amount: payAmount,
-                    balanceAfter: account.balance,
-                    date: new Date(),
-                    description: `Collection from ${payerName} - ${due.period} (${due.frequency})`,
-                    collectionReceipt: receipt._id
-                });
-
-                console.log(`Razorpay Collection Receipt: ${receiptNo} for ₹${payAmount}`);
-            } else {
-                // Legacy donation flow
-                const donorName = notes.donor_name || notes.name || 'Anonymous';
-                const donorPhone = payment.contact || notes.contact || '';
-                const description = notes.description || 'Online Donation';
-
-                const account = await Account.findOne({ isPrimary: true });
-                if (!account) {
-                    console.error('No Primary Account found for Razorpay Receipt');
-                    return res.status(200).json({ status: 'ignored', reason: 'No primary account' });
-                }
-
-                const categoryName = notes.category || 'Donation';
-                let category = await ReceiptCategory.findOne({ name: { $regex: new RegExp(`^${categoryName}$`, 'i') } });
-                if (!category) {
-                    category = await ReceiptCategory.create({
-                        name: categoryName,
-                        type: 'INCOME',
-                        description: 'Auto-created from Online Payment'
-                    });
-                }
-
-                const receiptNo = `ONL-${Date.now()}`;
-
-                await Receipt.create({
-                    receiptNo,
-                    date: new Date(),
-                    amount,
-                    type: 'INCOME',
-                    category: category._id,
-                    account: account._id,
-                    payer: donorName,
-                    payerContact: donorPhone,
-                    description: `${description} (Razorpay Ref: ${payment.id})`,
-                    items: [{
-                        description,
-                        amount
-                    }]
-                });
-
-                account.balance += amount;
-                await account.save();
-
-                await AccountTransaction.create({
-                    account: account._id,
-                    type: 'INCOME',
-                    amount,
-                    balanceAfter: account.balance,
-                    date: new Date(),
-                    description: `Receipt ${receiptNo} from ${donorName}`
-                });
-
-                console.log(`Razorpay Donation Receipt: ${receiptNo} for ₹${amount}`);
+                break;
             }
-
-            res.status(200).json({ status: 'ok' });
-
-        } catch (error) {
-            console.error('Razorpay Webhook Processing Error:', error);
-            res.status(200).json({ status: 'error', message: error.message });
+            default:
+                break;
         }
-    } else {
-        res.status(200).json({ status: 'ignored' });
     }
+
+    res.status(200).send();
 };
