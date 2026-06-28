@@ -47,10 +47,11 @@ export const createOrder = async (req, res) => {
 export const handleWebhook = async (req, res) => {
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
     const signature = req.headers['x-razorpay-signature'];
+    const rawBody = req.body;
 
     const expectedSignature = crypto
         .createHmac('sha256', secret)
-        .update(JSON.stringify(req.body))
+        .update(rawBody)
         .digest('hex');
 
     if (expectedSignature !== signature) {
@@ -58,7 +59,7 @@ export const handleWebhook = async (req, res) => {
         return res.status(400).json({ status: 'invalid_signature' });
     }
 
-    const event = req.body;
+    const event = JSON.parse(rawBody.toString());
 
     if (event.event === 'payment.captured') {
         try {
