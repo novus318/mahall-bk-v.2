@@ -1,4 +1,5 @@
 import Razorpay from 'razorpay';
+import dotenv from 'dotenv';
 import { validateWebhookSignature } from 'razorpay/dist/utils/razorpay-utils.js';
 import Receipt from '../models/Receipt.js';
 import ReceiptCategory from '../models/ReceiptCategory.js';
@@ -9,6 +10,9 @@ import CollectionReceipt from '../models/CollectionReceipt.js';
 import House from '../models/House.js';
 import Member from '../models/Member.js';
 import SystemSettings from '../models/SystemSettings.js';
+
+
+dotenv.config();
 
 const razorpay = new Razorpay({
     key_id: process.env.RAZORPAY_KEY_ID,
@@ -46,6 +50,8 @@ export const createOrder = async (req, res) => {
 
 export const handleWebhook = async (req, res) => {
     const signature = req.headers['x-razorpay-signature'];
+    console.log(signature)
+    console.log(process.env.RAZORPAY_WEBHOOK_SECRET)
     const isValid = await validateWebhookSignature(
         JSON.stringify(req.body),
         signature,
