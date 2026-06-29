@@ -51,7 +51,8 @@ export const handleWebhook = async (req, res) => {
         signature,
         process.env.RAZORPAY_WEBHOOK_SECRET
     );
-
+    console.log(isValid)
+    console.log(req.body)
     if (isValid) {
         const { event, payload } = req.body;
 
