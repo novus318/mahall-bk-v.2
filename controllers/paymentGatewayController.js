@@ -53,7 +53,7 @@ export const handleWebhook = async (req, res) => {
     console.log(signature)
     console.log(process.env.RAZORPAY_WEBHOOK_SECRET)
     const isValid = await validateWebhookSignature(
-        JSON.stringify(req.body),
+        req.body,
         signature,
         process.env.RAZORPAY_WEBHOOK_SECRET
     );
