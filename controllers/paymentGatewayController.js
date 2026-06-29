@@ -49,18 +49,17 @@ export const createOrder = async (req, res) => {
 };
 
 export const handleWebhook = async (req, res) => {
+    const rawBody = req.body;
     const signature = req.headers['x-razorpay-signature'];
-    console.log(signature)
-    console.log(process.env.RAZORPAY_WEBHOOK_SECRET)
-    const isValid = await validateWebhookSignature(
-        req.body,
+    const isValid = validateWebhookSignature(
+        rawBody.toString(),
         signature,
         process.env.RAZORPAY_WEBHOOK_SECRET
     );
     console.log(isValid)
     console.log(req.body)
     if (isValid) {
-        const { event, payload } = req.body;
+        const { event, payload } = JSON.parse(rawBody.toString());
 
         switch (event) {
             case 'payment.captured': {
