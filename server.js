@@ -13,7 +13,11 @@ app.use(cors({
     origin: ['http://localhost:3000', 'https://tmj.org.in', 'https://www.tmj.org.in'],
     credentials: true
 }));
-app.use(express.json());
+app.use(express.json({
+    verify: (req, res, buf) => {
+        req.rawBody = buf;
+    }
+}));
 
 app.get('/', (req, res) => {
     res.send('API is running...');

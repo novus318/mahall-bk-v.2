@@ -1,6 +1,6 @@
+import crypto from 'crypto';
 import Razorpay from 'razorpay';
 import dotenv from 'dotenv';
-import { validateWebhookSignature } from 'razorpay/dist/utils/razorpay-utils.js';
 import Receipt from '../models/Receipt.js';
 import ReceiptCategory from '../models/ReceiptCategory.js';
 import Account from '../models/Account.js';
@@ -49,17 +49,14 @@ export const createOrder = async (req, res) => {
 };
 
 export const handleWebhook = async (req, res) => {
-    const rawBody = req.body;
     const signature = req.headers['x-razorpay-signature'];
-    const isValid = validateWebhookSignature(
-        rawBody.toString(),
-        signature,
-        process.env.RAZORPAY_WEBHOOK_SECRET
-    );
-    console.log(isValid)
-    console.log(req.body)
-    if (isValid) {
-        const { event, payload } = JSON.parse(rawBody.toString());
+    const expectedSignature = crypto
+        .createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET)
+        .update(req.rawBody)
+        .digest('hex');
+
+    if (expectedSignature === signature) {
+        const { event, payload } = req.body;
 
         switch (event) {
             case 'payment.captured': {
