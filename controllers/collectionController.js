@@ -431,7 +431,7 @@ const downloadCollectionReceiptPdf = async (req, res) => {
         doc.font('Helvetica-Bold')
             .fontSize(16)
             .fillColor(BLACK)
-            .text('THAYINERI JUMA MASJID', MARGIN, y, {
+            .text('THAYINERI MUSLIM JAMA-AT', MARGIN, y, {
                 width: CONTENT_WIDTH,
                 align: 'center'
             });
@@ -450,13 +450,13 @@ const downloadCollectionReceiptPdf = async (req, res) => {
         // Address
         doc.fontSize(8)
             .fillColor(MEDIUM_GRAY)
-            .text('458X+XVH, Thayineri Road, Thrikaripur, Kerala 670307', MARGIN, y, {
+            .text('Thayineri Kara Road, Thayineri, Kerala 670307', MARGIN, y, {
                 width: CONTENT_WIDTH,
                 align: 'center'
             });
         y += 11;
 
-        doc.text('Phone: +91 1234567898', MARGIN, y, {
+        doc.text('Phone: +91 8129059992', MARGIN, y, {
             width: CONTENT_WIDTH,
             align: 'center'
         });
