@@ -154,7 +154,7 @@ export const handleWebhook = async (req, res) => {
                             break;
                         }
 
-                        const categoryName = notes.category || 'Donation';
+                        const categoryName = notes.category || 'DONATIONS';
                         let category = await ReceiptCategory.findOne({ name: { $regex: new RegExp(`^${categoryName}$`, 'i') } });
                         if (!category) {
                             category = await ReceiptCategory.create({
