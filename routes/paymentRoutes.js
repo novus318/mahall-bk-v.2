@@ -8,7 +8,7 @@ import { protect, authorize } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-router.get('/:id/pdf', downloadPaymentPdf);
+router.get('/:id/pdfprint', downloadPaymentPdf);
 router.get('/categories', protect, getPaymentCategories);
 router.post('/categories', protect, authorize('admin'), createPaymentCategory);
 router.put('/categories/:id', protect, authorize('admin'), updatePaymentCategory);

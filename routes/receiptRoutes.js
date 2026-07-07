@@ -14,7 +14,7 @@ import {
 
 const router = express.Router();
 
-router.get('/:id/pdf', downloadReceiptPdf);
+router.get('/:id/pdfprint', downloadReceiptPdf);
 router.get('/categories', protect, getReceiptCategories);
 router.post('/categories', protect, createReceiptCategory);
 router.put('/categories/:id', protect, updateReceiptCategory);
