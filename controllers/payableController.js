@@ -34,6 +34,26 @@ export const createPayable = async (req, res) => {
 
         const loanAmount = Number(amount);
 
+        // Prevent duplicate: same lender, type, amount, and loanDate
+        const dupDate = loanDate ? new Date(loanDate) : new Date();
+        const dupStart = new Date(dupDate);
+        dupStart.setDate(dupStart.getDate() - 1);
+        const dupEnd = new Date(dupDate);
+        dupEnd.setDate(dupEnd.getDate() + 1);
+
+        const existing = await Payable.findOne({
+            lenderName,
+            loanType,
+            amount: loanAmount,
+            loanDate: { $gte: dupStart, $lte: dupEnd },
+            status: { $ne: 'CANCELLED' }
+        }).session(session);
+
+        if (existing) {
+            await session.abortTransaction();
+            return res.status(409).json({ status: false, message: 'A duplicate loan with the same lender, type, amount and date already exists. Please verify before proceeding.' });
+        }
+
         // Create the payable record using new and save() instead of create()
         const payable = new Payable({
             lenderName,
