@@ -399,367 +399,165 @@ const downloadCollectionReceiptPdf = async (req, res) => {
             return res.status(404).json({ status: false, message: 'Receipt not found' });
         }
 
-        // A5 Size: 420 x 595 points
-        const doc = new PDFDocument({
-            size: 'A5',
-            margin: 40
-        });
+        const PW = 144;
+        const MG = 6;
+        const CW = PW - MG * 2;
+        const LH = 10;
 
-        // Stream to response
+        const isPartial = receipt.dueId?.status === 'PARTIAL';
+        const title = isPartial ? 'PARTIAL PAYMENT RECEIPT' : 'COLLECTION RECEIPT';
+        const desc = receipt.description;
+        const period = receipt.dueId?.period ? `Period: ${receipt.dueId.period}` : '';
+        const hasPartial = receipt.dueId && (receipt.dueId.frequency === 'Yearly' || receipt.dueId.status === 'PARTIAL');
+        const totalDue = receipt.dueId?.amount || 0;
+        const balance = totalDue - (receipt.dueId?.paidAmount || 0);
+        const payerName = receipt.payer.entityId?.name || receipt.payer.name || 'Unknown';
+        const houseId = receipt.payer.entityType === 'House'
+            ? receipt.payer.entityId?.customId
+            : (receipt.payer.entityId?.customId || '-');
+
+        const mDoc = new PDFDocument({ size: [PW, 1000], margin: MG });
+        mDoc.font('Helvetica').fontSize(7);
+        const descH = mDoc.heightOfString(desc, { width: CW - 4, lineBreak: true });
+        mDoc.end();
+
+        let ph = MG;
+        ph += 9;                        // org full name
+        ph += 7;                        // (TMJ)
+        ph += 8;                        // address line 1
+        ph += 8;                        // address line 2
+        ph += 5;                        // hr
+        ph += 10;                       // title
+        ph += 5;                        // hr
+        ph += LH * 4;                   // info rows
+        ph += 5;                        // hr
+        ph += 8;                        // Description label
+        ph += descH + 3;                // description text
+        if (period) ph += 8;            // period line
+        ph += 5;                        // hr
+        ph += 11;                       // amount line
+        if (hasPartial) {
+            ph += 5;                    // hr
+            ph += LH;                   // total due
+            if (balance > 0) ph += LH;  // balance
+        }
+        ph += 5;                        // hr
+        ph += 14;                       // total line
+        ph += 5;                        // hr
+        ph += 11;                       // signature label + gap
+        ph += 7;                        // signature line
+        ph += 7;                        // print timestamp
+        ph += MG;                       // bottom padding
+
+        const doc = new PDFDocument({ size: [PW, ph], margin: MG });
+
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `inline; filename=Receipt-${receipt.receiptNo}.pdf`);
 
         doc.pipe(res);
 
-        // === Configuration ===
-        const MARGIN = 40;
-        const PAGE_WIDTH = 420;
-        const CONTENT_WIDTH = PAGE_WIDTH - (MARGIN * 2);
+        let y = MG;
 
-        // Simple Black & White Color Scheme (Tally/Microsoft Style)
-        const BLACK = '#000000';
-        const DARK_GRAY = '#333333';
-        const MEDIUM_GRAY = '#666666';
-        const LIGHT_GRAY = '#999999';
-        const BORDER_GRAY = '#cccccc';
+        const hr = () => {
+            doc.lineWidth(0.5).moveTo(MG, y).lineTo(PW - MG, y).strokeColor('#000').stroke();
+            y += 5;
+        };
 
-        let y = MARGIN;
+        const row = (lbl, val) => {
+            const lw = 36;
+            doc.font('Helvetica-Bold').fontSize(7).fillColor('#000')
+                .text(lbl, MG, y, { width: lw });
+            doc.font('Helvetica').fontSize(7).fillColor('#000')
+                .text((val || '-') + '', MG + lw, y, { width: CW - lw, align: 'right' });
+            y += LH;
+        };
 
-        // ==================== HEADER ====================
+        doc.font('Helvetica-Bold').fontSize(7).fillColor('#000')
+            .text('THAYINERI MUSLIM JAMA-AT', MG, y, { width: CW, align: 'center' });
+        y += 9;
 
-        // Organization Name - Bold & Centered
-        doc.font('Helvetica-Bold')
-            .fontSize(16)
-            .fillColor(BLACK)
-            .text('THAYINERI MUSLIM JAMA-AT', MARGIN, y, {
-                width: CONTENT_WIDTH,
-                align: 'center'
-            });
-        y += 18;
+        doc.font('Helvetica').fontSize(6).fillColor('#000')
+            .text('(TMJ)', MG, y, { width: CW, align: 'center' });
+        y += 7;
 
-        // Abbreviation
-        doc.font('Helvetica')
-            .fontSize(9)
-            .fillColor(DARK_GRAY)
-            .text('(TMJ)', MARGIN, y, {
-                width: CONTENT_WIDTH,
-                align: 'center'
-            });
-        y += 15;
+        doc.font('Helvetica').fontSize(5.5).fillColor('#000')
+            .text('Thayineri Kara Road, Thayineri,', MG, y, { width: CW, align: 'center' });
+        y += 8;
 
-        // Address
-        doc.fontSize(8)
-            .fillColor(MEDIUM_GRAY)
-            .text('Thayineri Kara Road, Thayineri, Kerala 670307', MARGIN, y, {
-                width: CONTENT_WIDTH,
-                align: 'center'
-            });
+        doc.fontSize(5.5)
+            .text('Kerala 670307 | Ph: +91 8129059992', MG, y, { width: CW, align: 'center' });
+        y += 8;
+
+        hr();
+
+        doc.font('Helvetica-Bold').fontSize(8).fillColor('#000')
+            .text(title, MG, y, { width: CW, align: 'center' });
+        y += 10;
+
+        hr();
+
+        row('Receipt#:', receipt.receiptNo);
+        row('Date:', new Date(receipt.date).toLocaleDateString('en-GB', {
+            day: '2-digit', month: 'short', year: 'numeric'
+        }));
+        row('From:', payerName);
+        row('House:', houseId);
+
+        hr();
+
+        doc.font('Helvetica-Bold').fontSize(7).fillColor('#000')
+            .text('Description', MG, y);
+        y += 8;
+
+        doc.font('Helvetica').fontSize(7).fillColor('#000')
+            .text(desc, MG + 3, y, { width: CW - 3, lineBreak: true });
+        y += descH + 3;
+
+        if (period) {
+            doc.fontSize(6).fillColor('#000')
+                .text(period, MG + 3, y, { width: CW - 3 });
+            y += 8;
+        }
+
+        hr();
+
+        doc.font('Helvetica-Bold').fontSize(7).fillColor('#000')
+            .text('Amount', MG, y, { width: 36 });
+        doc.font('Helvetica').fontSize(7).fillColor('#000')
+            .text(Number(receipt.amount).toFixed(2), MG + 36, y, { width: CW - 36, align: 'right' });
         y += 11;
 
-        doc.text('Phone: +91 8129059992', MARGIN, y, {
-            width: CONTENT_WIDTH,
-            align: 'center'
-        });
-        y += 20;
+        if (hasPartial) {
+            hr();
 
-        // Separator Line
-        doc.lineWidth(1)
-            .moveTo(MARGIN, y)
-            .lineTo(PAGE_WIDTH - MARGIN, y)
-            .strokeColor(BLACK)
-            .stroke();
-        y += 15;
+            doc.font('Helvetica').fontSize(7).fillColor('#000')
+                .text('Total Due', MG, y, { width: 36 });
+            doc.text(totalDue.toFixed(2), MG + 36, y, { width: CW - 36, align: 'right' });
+            y += LH;
 
-        // ==================== RECEIPT TITLE ====================
-
-        // Dynamic Title based on Payment Type
-        const isPartial = receipt.dueId?.status === 'PARTIAL';
-        const title = isPartial ? 'PARTIAL PAYMENT RECEIPT' : 'COLLECTION RECEIPT';
-
-        doc.font('Helvetica-Bold')
-            .fontSize(12)
-            .fillColor(BLACK)
-            .text(title, MARGIN, y, {
-                width: CONTENT_WIDTH,
-                align: 'center'
-            });
-        y += 20;
-
-        // ==================== RECEIPT INFO TABLE ====================
-
-        // Draw outer box
-        const infoBoxTop = y;
-        const infoBoxHeight = 65;
-        doc.rect(MARGIN, infoBoxTop, CONTENT_WIDTH, infoBoxHeight)
-            .lineWidth(1)
-            .strokeColor(BLACK)
-            .stroke();
-
-        // Vertical divider in the middle
-        const midX = MARGIN + (CONTENT_WIDTH / 2);
-        doc.moveTo(midX, infoBoxTop)
-            .lineTo(midX, infoBoxTop + infoBoxHeight)
-            .stroke();
-
-        // Left Section
-        let infoY = infoBoxTop + 10;
-        const leftLabelX = MARGIN + 8;
-        const leftValueX = MARGIN + 70;
-
-        doc.font('Helvetica-Bold').fontSize(8).fillColor(BLACK);
-
-        // Receipt No
-        doc.text('Receipt No:', leftLabelX, infoY);
-        doc.font('Helvetica').text(receipt.receiptNo, leftValueX, infoY);
-        infoY += 13;
-
-        // Date
-        doc.font('Helvetica-Bold').text('Date:', leftLabelX, infoY);
-        doc.font('Helvetica').text(
-            new Date(receipt.date).toLocaleDateString('en-GB', {
-                day: '2-digit',
-                month: 'short',
-                year: 'numeric'
-            }),
-            leftValueX,
-            infoY
-        );
-        infoY += 13;
-
-        // Day
-        doc.font('Helvetica-Bold').text('Day:', leftLabelX, infoY);
-        doc.font('Helvetica').text(
-            new Date(receipt.date).toLocaleDateString('en-US', { weekday: 'long' }),
-            leftValueX,
-            infoY
-        );
-
-        // Right Section
-        infoY = infoBoxTop + 10;
-        const rightLabelX = midX + 8;
-        const rightValueX = midX + 60;
-
-        // Received From
-        doc.font('Helvetica-Bold').text('From:', rightLabelX, infoY);
-        const payerName = receipt.payer.entityId?.name || receipt.payer.name || 'Unknown';
-        doc.font('Helvetica').text(payerName, rightValueX, infoY, {
-            width: (PAGE_WIDTH - MARGIN - rightValueX - 8),
-            lineBreak: true
-        });
-        infoY += 13;
-
-        // House ID
-        doc.font('Helvetica-Bold').text('House ID:', rightLabelX, infoY);
-        const houseId = receipt.payer.entityType === 'House'
-            ? receipt.payer.entityId?.customId
-            : (receipt.payer.entityId?.customId || '-');
-        doc.font('Helvetica').text(houseId || '-', rightValueX, infoY);
-
-        y = infoBoxTop + infoBoxHeight + 15;
-
-        // ==================== DETAILS TABLE ====================
-
-        const tableTop = y;
-        const colDescX = MARGIN;
-        const colDescWidth = CONTENT_WIDTH * 0.65;
-        const colAmountX = MARGIN + colDescWidth;
-        const colAmountWidth = CONTENT_WIDTH * 0.35;
-        const rowHeight = 22;
-
-        // Table Header
-        doc.rect(MARGIN, tableTop, CONTENT_WIDTH, rowHeight)
-            .lineWidth(1)
-            .strokeColor(BLACK)
-            .fillAndStroke(BLACK, BLACK);
-
-        doc.font('Helvetica-Bold')
-            .fontSize(9)
-            .fillColor('#FFFFFF')
-            .text('Description', colDescX + 8, tableTop + 7, {
-                width: colDescWidth - 16,
-                align: 'left'
-            })
-            .text('Amount (Rs.)', colAmountX + 8, tableTop + 7, {
-                width: colAmountWidth - 16,
-                align: 'right'
-            });
-
-        let tableY = tableTop + rowHeight;
-
-        // Details Row
-        const descriptionText = receipt.description;
-        const periodText = receipt.dueId?.period ? `Period: ${receipt.dueId.period}` : '';
-
-        // Calculate row height based on content
-        const descLines = doc.heightOfString(descriptionText, {
-            width: colDescWidth - 16,
-            lineBreak: true
-        });
-        const detailRowHeight = Math.max(descLines + (periodText ? 12 : 0) + 12, 35);
-
-        // Draw detail row border
-        doc.rect(MARGIN, tableY, CONTENT_WIDTH, detailRowHeight)
-            .lineWidth(1)
-            .strokeColor(BLACK)
-            .stroke();
-
-        // Vertical line between columns
-        doc.moveTo(colAmountX, tableY)
-            .lineTo(colAmountX, tableY + detailRowHeight)
-            .stroke();
-
-        // Description text
-        doc.fillColor(BLACK)
-            .font('Helvetica')
-            .fontSize(9)
-            .text(descriptionText, colDescX + 8, tableY + 8, {
-                width: colDescWidth - 16,
-                lineBreak: true
-            });
-
-        // Period sub-text
-        if (periodText) {
-            doc.fontSize(7)
-                .fillColor(MEDIUM_GRAY)
-                .text(periodText, colDescX + 8, tableY + descLines + 10, {
-                    width: colDescWidth - 16
-                });
-        }
-
-        // Amount
-        doc.font('Helvetica')
-            .fontSize(10)
-            .fillColor(BLACK)
-            .text(
-                Number(receipt.amount).toFixed(2),
-                colAmountX + 8,
-                tableY + 8,
-                {
-                    width: colAmountWidth - 16,
-                    align: 'right'
-                }
-            );
-
-        tableY += detailRowHeight;
-
-        // --- PARTIAL PAYMENT DETAILS & BALANCE ---
-        if (receipt.dueId && (receipt.dueId.frequency === 'Yearly' || receipt.dueId.status === 'PARTIAL')) {
-            const totalAmount = receipt.dueId.amount;
-            const paidTotal = receipt.dueId.paidAmount; // This includes THIS receipt usually, check backend logic
-            const balance = totalAmount - paidTotal;
-
-            // Only show if there is useful info (e.g. balance > 0 or it was a partial payment)
-
-            // Total Due Row (Plain)
-            doc.rect(MARGIN, tableY, CONTENT_WIDTH, rowHeight)
-                .strokeColor(BLACK)
-                .stroke();
-
-            // Vertical line
-            doc.moveTo(colAmountX, tableY).lineTo(colAmountX, tableY + rowHeight).stroke();
-
-            doc.font('Helvetica').fontSize(9).fillColor(MEDIUM_GRAY)
-                .text('Total Due Amount', colDescX + 20, tableY + 6)
-                .text(`Rs. ${totalAmount.toFixed(2)}`, colAmountX + 8, tableY + 6, { align: 'right', width: colAmountWidth - 16 });
-
-            tableY += rowHeight;
-
-            // Balance Row (Bold if balance exists)
-            if (balance >= 0) {
-                doc.rect(MARGIN, tableY, CONTENT_WIDTH, rowHeight)
-                    .strokeColor(BLACK)
-                    .stroke();
-                // Vertical line
-                doc.moveTo(colAmountX, tableY).lineTo(colAmountX, tableY + rowHeight).stroke();
-
-                doc.font('Helvetica-Bold').fontSize(9).fillColor(BLACK)
-                    .text('Balance Due', colDescX + 20, tableY + 6)
-                    .text(`Rs. ${balance.toFixed(2)}`, colAmountX + 8, tableY + 6, { align: 'right', width: colAmountWidth - 16 });
-
-                tableY += rowHeight;
+            if (balance > 0) {
+                doc.font('Helvetica-Bold').fontSize(7).fillColor('#000')
+                    .text('Balance', MG, y, { width: 36 });
+                doc.text(balance.toFixed(2), MG + 36, y, { width: CW - 36, align: 'right' });
+                y += LH;
             }
         }
-        // -----------------------------------------
 
-        // Total Row
-        doc.rect(MARGIN, tableY, CONTENT_WIDTH, rowHeight)
-            .lineWidth(1)
-            .strokeColor(BLACK)
-            .fillAndStroke('#f0f0f0', BLACK);
+        hr();
 
-        // Vertical line
-        doc.strokeColor(BLACK)
-            .moveTo(colAmountX, tableY)
-            .lineTo(colAmountX, tableY + rowHeight)
-            .stroke();
+        doc.font('Helvetica-Bold').fontSize(9).fillColor('#000')
+            .text('TOTAL', MG, y, { width: 48 });
+        doc.text('Rs. ' + Number(receipt.amount).toFixed(2), MG + 48, y, { width: CW - 48, align: 'right' });
+        y += 14;
 
-        doc.font('Helvetica-Bold')
-            .fontSize(10)
-            .fillColor(BLACK)
-            .text('Total Amount', colDescX + 8, tableY + 6, {
-                width: colDescWidth - 16,
-                align: 'left'
-            })
-            .text(
-                `Rs. ${Number(receipt.amount).toFixed(2)}`,
-                colAmountX + 8,
-                tableY + 6,
-                {
-                    width: colAmountWidth - 16,
-                    align: 'right'
-                }
-            );
+        hr();
 
-        y = tableY + rowHeight + 30;
-
-        // ==================== FOOTER ====================
-
-        // Signature line
-        const sigLineY = 500;
-        const sigLineWidth = 100;
-        const sigLineX = PAGE_WIDTH - MARGIN - sigLineWidth;
-
-        doc.fontSize(7)
-            .fillColor(MEDIUM_GRAY)
-            .font('Helvetica')
-            .text('Authorized Signature', sigLineX, sigLineY, {
-                width: sigLineWidth,
-                align: 'center'
-            });
-
-        doc.lineWidth(0.5)
-            .moveTo(sigLineX, sigLineY + 25)
-            .lineTo(sigLineX + sigLineWidth, sigLineY + 25)
-            .strokeColor(BORDER_GRAY)
-            .stroke();
-
-        // Bottom separator
-        const footerLineY = 530;
-        doc.lineWidth(0.5)
-            .moveTo(MARGIN, footerLineY)
-            .lineTo(PAGE_WIDTH - MARGIN, footerLineY)
-            .strokeColor(BORDER_GRAY)
-            .stroke();
-
-        // Generated timestamp
-        doc.fontSize(6)
-            .fillColor(LIGHT_GRAY)
-            .text(
-                `Generated on ${new Date().toLocaleString('en-GB', {
-                    day: '2-digit',
-                    month: 'short',
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: true
-                })}`,
-                MARGIN,
-                footerLineY + 8,
-                {
-                    width: CONTENT_WIDTH,
-                    align: 'center'
-                }
-            );
+        doc.fontSize(5).fillColor('#000')
+            .text('Printed: ' + new Date().toLocaleString('en-IN', {
+                timeZone: 'Asia/Kolkata',
+                day: '2-digit', month: 'short', year: 'numeric',
+                hour: '2-digit', minute: '2-digit', hour12: true
+            }), MG, y, { width: CW, align: 'center' });
 
         doc.end();
 
