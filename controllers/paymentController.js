@@ -461,115 +461,100 @@ export const downloadPaymentPdf = async (req, res) => {
 
         if (!payment) return res.status(404).json({ status: false, message: 'Payment not found' });
 
-        const doc = new PDFDocument({ size: 'A4', margin: 50 });
+        const doc = new PDFDocument({ size: 'A5', margin: 30 });
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `inline; filename=Voucher-${payment.receiptNo}.pdf`);
         doc.pipe(res);
 
         const PW = doc.page.width;
-        const MG = 50;
+        const MG = 30;
         const CW = PW - MG * 2;
         let y = MG;
 
-        doc.font('Helvetica-Bold').fontSize(14).fillColor('#000')
+        doc.font('Helvetica-Bold').fontSize(16).fillColor('#000')
             .text('THAYINERI MUSLIM JAMA-AT', MG, y, { width: CW, align: 'center' });
-        y += 16;
+        y += 22;
 
-        doc.font('Helvetica').fontSize(8).fillColor('#444')
+        doc.font('Helvetica').fontSize(9).fillColor('#555')
             .text('(TMJ) | Thayineri Kara Road, Thayineri, Kerala 670307 | Ph: +91 8129059992', MG, y, { width: CW, align: 'center' });
         y += 14;
 
         doc.lineWidth(0.5).moveTo(MG, y).lineTo(PW - MG, y).strokeColor('#000').stroke();
-        y += 12;
-
-        doc.font('Helvetica-Bold').fontSize(16).fillColor('#000')
-            .text('PAYMENT VOUCHER', MG, y, { width: CW, align: 'center' });
-        y += 20;
-
-        // Voucher number & Date
-        doc.fontSize(9).fillColor('#000');
-        doc.font('Helvetica-Bold').text('Voucher No:', MG, y, { width: 80 });
-        doc.font('Helvetica').text(payment.receiptNo, MG + 80, y, { width: CW - 80 });
-        y += 13;
-
-        doc.font('Helvetica-Bold').text('Date:', MG, y, { width: 80 });
-        doc.font('Helvetica').text(new Date(payment.date).toLocaleDateString('en-GB', {
-            day: '2-digit', month: 'short', year: 'numeric'
-        }), MG + 80, y, { width: CW - 80 });
-        y += 20;
-
-        // Divider
-        doc.lineWidth(0.5).moveTo(MG, y).lineTo(PW - MG, y).strokeColor('#ccc').stroke();
-        y += 12;
-
-        // Payee & Account Info
-        const infoX = MG;
-        const col1X = MG;
-        const col2X = MG + CW / 2;
-
-        doc.font('Helvetica-Bold').fontSize(10).fillColor('#000').text('Pay To:', col1X, y);
-        doc.font('Helvetica').fontSize(10).text(payment.payee, col1X + 55, y);
-        if (payment.payeeContact) {
-            y += 14;
-            doc.font('Helvetica').fontSize(9).fillColor('#555').text(payment.payeeContact, col1X + 55, y);
-            y -= 14;
-        }
-        doc.font('Helvetica-Bold').fontSize(10).fillColor('#000').text('Paid From:', col2X, y);
-        doc.font('Helvetica').fontSize(10).text(payment.account?.name || '-', col2X + 70, y);
         y += 14;
 
-        doc.font('Helvetica-Bold').fontSize(10).fillColor('#000').text('Category:', col1X, y);
-        doc.font('Helvetica').fontSize(10).text(payment.category?.name || '-', col1X + 55, y);
-        y += 20;
+        doc.font('Helvetica-Bold').fontSize(15).fillColor('#000')
+            .text('PAYMENT VOUCHER', MG, y, { width: CW, align: 'center' });
+        y += 22;
 
-        // Description
-        if (payment.description) {
-            doc.font('Helvetica-Bold').fontSize(9).fillColor('#000').text('Description:', col1X, y);
-            doc.font('Helvetica').fontSize(9).fillColor('#444').text(payment.description, col1X + 72, y, { width: CW - 72 });
-            y += 16;
+        const L = 70;
+        const LH = 14;
+        doc.fontSize(9).fillColor('#000');
+        doc.font('Helvetica-Bold').text('Voucher No:', MG, y, { width: L });
+        doc.font('Helvetica').text(payment.receiptNo, MG + L, y);
+        y += LH;
+
+        doc.font('Helvetica-Bold').text('Date:', MG, y, { width: L });
+        doc.font('Helvetica').text(new Date(payment.date).toLocaleDateString('en-GB', {
+            day: '2-digit', month: 'short', year: 'numeric'
+        }), MG + L, y);
+        y += LH + 2;
+
+        doc.lineWidth(0.5).moveTo(MG, y).lineTo(PW - MG, y).strokeColor('#ccc').stroke();
+        y += 12;
+
+        const lw = 60;
+        doc.font('Helvetica-Bold').fontSize(9).fillColor('#000').text('Pay To:', MG, y, { width: lw });
+        doc.font('Helvetica').fontSize(9).text(payment.payee, MG + lw, y);
+        y += LH;
+
+        if (payment.payeeContact) {
+            doc.font('Helvetica').fontSize(8).fillColor('#777').text(payment.payeeContact, MG + lw, y);
+            y += 11;
         }
 
-        // Divider
-        doc.lineWidth(0.5).moveTo(MG, y).lineTo(PW - MG, y).strokeColor('#ccc').stroke();
-        y += 10;
+        doc.font('Helvetica-Bold').fontSize(9).fillColor('#000').text('Paid From:', MG, y, { width: lw });
+        doc.font('Helvetica').fontSize(9).text(payment.account?.name || '-', MG + lw, y);
+        y += LH;
 
-        // Table header
-        const tColX = [MG, MG + 30, MG + CW - 120];
-        const tColW = [30, CW - 150, 120];
+        doc.font('Helvetica-Bold').fontSize(9).fillColor('#000').text('Category:', MG, y, { width: lw });
+        doc.font('Helvetica').fontSize(9).text(payment.category?.name || '-', MG + lw, y);
+        y += LH;
+
+        if (payment.description) {
+            doc.font('Helvetica-Bold').fontSize(9).fillColor('#000').text('Description:', MG, y, { width: lw });
+            doc.font('Helvetica').fontSize(9).fillColor('#444').text(payment.description, MG + lw, y, { width: CW - lw });
+            y += LH;
+        }
+
+        doc.lineWidth(0.5).moveTo(MG, y).lineTo(PW - MG, y).strokeColor('#ccc').stroke();
+        y += 12;
+
+        const tColX = [MG, MG + 18, MG + CW - 90];
+        const tColW = [18, CW - 108, 90];
 
         doc.lineWidth(0.5).rect(MG, y, CW, 18).fillAndStroke('#000', '#000');
         doc.fillColor('#fff').font('Helvetica-Bold').fontSize(8);
-        doc.text('#', tColX[0] + 6, y + 5, { width: tColW[0] });
-        doc.text('Particulars', tColX[1] + 6, y + 5, { width: tColW[1] });
-        doc.text('Amount', tColX[2] + 6, y + 5, { width: tColW[2] - 12, align: 'right' });
+        doc.text('#', tColX[0] + 5, y + 5, { width: tColW[0], align: 'center' });
+        doc.text('Particulars', tColX[1] + 5, y + 5, { width: tColW[1] });
+        doc.text('Amount', tColX[2] + 5, y + 5, { width: tColW[2] - 10, align: 'right' });
         y += 18;
 
-        // Table rows
         doc.font('Helvetica').fontSize(9).fillColor('#000');
         payment.items.forEach((item, i) => {
-            doc.lineWidth(0.5).rect(MG, y, CW, 20).stroke('#ddd');
-            doc.text(String(i + 1), tColX[0] + 6, y + 5, { width: tColW[0] });
-            doc.text(item.description, tColX[1] + 6, y + 5, { width: tColW[1] });
-            doc.text('Rs. ' + Number(item.amount).toFixed(2), tColX[2] + 6, y + 5, { width: tColW[2] - 12, align: 'right' });
+            doc.lineWidth(0.5).rect(MG, y, CW, 20).stroke('#eee');
+            doc.text(String(i + 1), tColX[0] + 5, y + 5, { width: tColW[0], align: 'center' });
+            doc.text(item.description, tColX[1] + 5, y + 5, { width: tColW[1] });
+            doc.text('Rs. ' + Number(item.amount).toFixed(2), tColX[2] + 5, y + 5, { width: tColW[2] - 10, align: 'right' });
             y += 20;
         });
 
-        // Total row
         doc.lineWidth(0.5).rect(MG, y, CW, 22).fillAndStroke('#f5f5f5', '#000');
         doc.fillColor('#000').font('Helvetica-Bold').fontSize(10);
-        doc.text('TOTAL', tColX[1] + 6, y + 5, { width: tColW[1] });
-        doc.text('Rs. ' + Number(payment.amount).toFixed(2), tColX[2] + 6, y + 5, { width: tColW[2] - 12, align: 'right' });
+        doc.text('TOTAL', tColX[1] + 5, y + 5, { width: tColW[1] });
+        doc.text('Rs. ' + Number(payment.amount).toFixed(2), tColX[2] + 5, y + 5, { width: tColW[2] - 10, align: 'right' });
         y += 30;
 
-        // Signature
-        doc.font('Helvetica').fontSize(8).fillColor('#555');
-        doc.text('Authorised Signatory', MG, y, { width: CW, align: 'right' });
-        y += 2;
-        doc.lineWidth(0.5).moveTo(PW - MG - 120, y).lineTo(PW - MG, y).strokeColor('#000').stroke();
-        y += 18;
-
-        // Footer
-        doc.fontSize(7).fillColor('#aaa')
+        doc.fontSize(8).fillColor('#888')
             .text('Generated: ' + new Date().toLocaleString('en-IN', {
                 timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric',
                 hour: '2-digit', minute: '2-digit', hour12: true

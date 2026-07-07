@@ -14,14 +14,22 @@ import {
 
 const router = express.Router();
 
-router.get('/:id/pdfprint', downloadReceiptPdf);
-router.get('/categories', protect, getReceiptCategories);
-router.post('/categories', protect, createReceiptCategory);
-router.put('/categories/:id', protect, updateReceiptCategory);
-router.delete('/categories/:id', protect, deleteReceiptCategory);
-router.post('/', protect, createReceipt);
-router.get('/', protect, getReceipts);
-router.put('/:id', protect, updateReceipt);
-router.get('/:id', protect, getReceiptById);
+// Public Routes
+router.get('/:id/pdf', downloadReceiptPdf);
+
+// Protected Routes
+router.use(protect);
+
+// Categories
+router.get('/categories', getReceiptCategories);
+router.post('/categories', createReceiptCategory);
+router.put('/categories/:id', updateReceiptCategory);
+router.delete('/categories/:id', deleteReceiptCategory);
+
+// Receipts
+router.get('/', getReceipts);
+router.get('/:id', getReceiptById);
+router.post('/', createReceipt);
+router.put('/:id', updateReceipt);
 
 export default router;

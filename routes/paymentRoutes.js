@@ -8,16 +8,24 @@ import { protect, authorize } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-router.get('/:id/pdfprint', downloadPaymentPdf);
-router.get('/categories', protect, getPaymentCategories);
-router.post('/categories', protect, authorize('admin'), createPaymentCategory);
-router.put('/categories/:id', protect, authorize('admin'), updatePaymentCategory);
-router.delete('/categories/:id', protect, authorize('admin'), deletePaymentCategory);
-router.get('/', protect, getPayments);
-router.get('/:id', protect, getPaymentById);
-router.post('/', protect, createPayment);
-router.put('/:id', protect, updatePayment);
-router.put('/:id/mark-paid', protect, markPaymentAsPaid);
-router.delete('/:id', protect, deletePayment);
+// Public Routes
+router.get('/:id/pdf', downloadPaymentPdf);
+
+// Protected Routes
+router.use(protect);
+
+// Categories
+router.get('/categories', getPaymentCategories);
+router.post('/categories', authorize('admin'), createPaymentCategory);
+router.put('/categories/:id', authorize('admin'), updatePaymentCategory);
+router.delete('/categories/:id', authorize('admin'), deletePaymentCategory);
+
+// Payments
+router.get('/', getPayments);
+router.get('/:id', getPaymentById);
+router.post('/', createPayment);
+router.put('/:id', updatePayment);
+router.put('/:id/mark-paid', markPaymentAsPaid);
+router.delete('/:id', deletePayment);
 
 export default router;

@@ -47,6 +47,8 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/payment-gateway', paymentGatewayRoutes);
 app.use('/api/collections', collectionRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/receipts', receiptRoutes);
 app.use('/api', mahallRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/settings', settingsRoutes);
@@ -55,8 +57,6 @@ app.use('/api/staff', staffRoutes);
 app.use('/api/accounts', accountRoutes);
 app.use('/api/buildings', buildingRoutes);
 app.use('/api/contracts', contractRoutes);
-app.use('/api/payments', paymentRoutes);
-app.use('/api/receipts', receiptRoutes);
 app.use('/api/payables', payableRoutes);
 app.use('/api/certificates', certificateRoutes);
 
