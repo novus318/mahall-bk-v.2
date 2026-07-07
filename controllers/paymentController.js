@@ -3,6 +3,7 @@ import PaymentCategory from '../models/PaymentCategory.js';
 import SystemSettings from '../models/SystemSettings.js';
 import Account from '../models/Account.js';
 import AccountTransaction from '../models/AccountTransaction.js';
+import PDFDocument from 'pdfkit';
 import { sendPaymentAlert } from './settingsController.js';
 
 // --- Categories ---
@@ -447,5 +448,137 @@ export const deletePayment = async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+// @desc    Download Payment Voucher PDF
+// @route   GET /api/payments/:id/pdf
+export const downloadPaymentPdf = async (req, res) => {
+    try {
+        const payment = await Payment.findById(req.params.id)
+            .populate('category', 'name')
+            .populate('account', 'name');
+
+        if (!payment) return res.status(404).json({ status: false, message: 'Payment not found' });
+
+        const doc = new PDFDocument({ size: 'A4', margin: 50 });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename=Voucher-${payment.receiptNo}.pdf`);
+        doc.pipe(res);
+
+        const PW = doc.page.width;
+        const MG = 50;
+        const CW = PW - MG * 2;
+        let y = MG;
+
+        doc.font('Helvetica-Bold').fontSize(14).fillColor('#000')
+            .text('THAYINERI MUSLIM JAMA-AT', MG, y, { width: CW, align: 'center' });
+        y += 16;
+
+        doc.font('Helvetica').fontSize(8).fillColor('#444')
+            .text('(TMJ) | Thayineri Kara Road, Thayineri, Kerala 670307 | Ph: +91 8129059992', MG, y, { width: CW, align: 'center' });
+        y += 14;
+
+        doc.lineWidth(0.5).moveTo(MG, y).lineTo(PW - MG, y).strokeColor('#000').stroke();
+        y += 12;
+
+        doc.font('Helvetica-Bold').fontSize(16).fillColor('#000')
+            .text('PAYMENT VOUCHER', MG, y, { width: CW, align: 'center' });
+        y += 20;
+
+        // Voucher number & Date
+        doc.fontSize(9).fillColor('#000');
+        doc.font('Helvetica-Bold').text('Voucher No:', MG, y, { width: 80 });
+        doc.font('Helvetica').text(payment.receiptNo, MG + 80, y, { width: CW - 80 });
+        y += 13;
+
+        doc.font('Helvetica-Bold').text('Date:', MG, y, { width: 80 });
+        doc.font('Helvetica').text(new Date(payment.date).toLocaleDateString('en-GB', {
+            day: '2-digit', month: 'short', year: 'numeric'
+        }), MG + 80, y, { width: CW - 80 });
+        y += 20;
+
+        // Divider
+        doc.lineWidth(0.5).moveTo(MG, y).lineTo(PW - MG, y).strokeColor('#ccc').stroke();
+        y += 12;
+
+        // Payee & Account Info
+        const infoX = MG;
+        const col1X = MG;
+        const col2X = MG + CW / 2;
+
+        doc.font('Helvetica-Bold').fontSize(10).fillColor('#000').text('Pay To:', col1X, y);
+        doc.font('Helvetica').fontSize(10).text(payment.payee, col1X + 55, y);
+        if (payment.payeeContact) {
+            y += 14;
+            doc.font('Helvetica').fontSize(9).fillColor('#555').text(payment.payeeContact, col1X + 55, y);
+            y -= 14;
+        }
+        doc.font('Helvetica-Bold').fontSize(10).fillColor('#000').text('Paid From:', col2X, y);
+        doc.font('Helvetica').fontSize(10).text(payment.account?.name || '-', col2X + 70, y);
+        y += 14;
+
+        doc.font('Helvetica-Bold').fontSize(10).fillColor('#000').text('Category:', col1X, y);
+        doc.font('Helvetica').fontSize(10).text(payment.category?.name || '-', col1X + 55, y);
+        y += 20;
+
+        // Description
+        if (payment.description) {
+            doc.font('Helvetica-Bold').fontSize(9).fillColor('#000').text('Description:', col1X, y);
+            doc.font('Helvetica').fontSize(9).fillColor('#444').text(payment.description, col1X + 72, y, { width: CW - 72 });
+            y += 16;
+        }
+
+        // Divider
+        doc.lineWidth(0.5).moveTo(MG, y).lineTo(PW - MG, y).strokeColor('#ccc').stroke();
+        y += 10;
+
+        // Table header
+        const tColX = [MG, MG + 30, MG + CW - 120];
+        const tColW = [30, CW - 150, 120];
+
+        doc.lineWidth(0.5).rect(MG, y, CW, 18).fillAndStroke('#000', '#000');
+        doc.fillColor('#fff').font('Helvetica-Bold').fontSize(8);
+        doc.text('#', tColX[0] + 6, y + 5, { width: tColW[0] });
+        doc.text('Particulars', tColX[1] + 6, y + 5, { width: tColW[1] });
+        doc.text('Amount', tColX[2] + 6, y + 5, { width: tColW[2] - 12, align: 'right' });
+        y += 18;
+
+        // Table rows
+        doc.font('Helvetica').fontSize(9).fillColor('#000');
+        payment.items.forEach((item, i) => {
+            doc.lineWidth(0.5).rect(MG, y, CW, 20).stroke('#ddd');
+            doc.text(String(i + 1), tColX[0] + 6, y + 5, { width: tColW[0] });
+            doc.text(item.description, tColX[1] + 6, y + 5, { width: tColW[1] });
+            doc.text('Rs. ' + Number(item.amount).toFixed(2), tColX[2] + 6, y + 5, { width: tColW[2] - 12, align: 'right' });
+            y += 20;
+        });
+
+        // Total row
+        doc.lineWidth(0.5).rect(MG, y, CW, 22).fillAndStroke('#f5f5f5', '#000');
+        doc.fillColor('#000').font('Helvetica-Bold').fontSize(10);
+        doc.text('TOTAL', tColX[1] + 6, y + 5, { width: tColW[1] });
+        doc.text('Rs. ' + Number(payment.amount).toFixed(2), tColX[2] + 6, y + 5, { width: tColW[2] - 12, align: 'right' });
+        y += 30;
+
+        // Signature
+        doc.font('Helvetica').fontSize(8).fillColor('#555');
+        doc.text('Authorised Signatory', MG, y, { width: CW, align: 'right' });
+        y += 2;
+        doc.lineWidth(0.5).moveTo(PW - MG - 120, y).lineTo(PW - MG, y).strokeColor('#000').stroke();
+        y += 18;
+
+        // Footer
+        doc.fontSize(7).fillColor('#aaa')
+            .text('Generated: ' + new Date().toLocaleString('en-IN', {
+                timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric',
+                hour: '2-digit', minute: '2-digit', hour12: true
+            }), MG, y, { width: CW, align: 'center' });
+
+        doc.end();
+
+    } catch (error) {
+        console.error(error);
+        if (!res.headersSent) res.status(500).json({ status: false, message: error.message });
     }
 };

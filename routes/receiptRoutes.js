@@ -8,22 +8,20 @@ import {
     getReceipts,
     updateReceipt,
     getReceiptById,
-    updateReceiptCategory
+    updateReceiptCategory,
+    downloadReceiptPdf
 } from '../controllers/receiptController.js';
 
 const router = express.Router();
 
-// Categories
-router.route('/categories').get(protect, getReceiptCategories).post(protect, createReceiptCategory);
-router.route('/categories/:id').put(protect, updateReceiptCategory).delete(protect, deleteReceiptCategory);
-
-// Receipts
-router.route('/')
-    .post(protect, createReceipt)
-    .get(protect, getReceipts);
-
-router.route('/:id')
-    .put(protect, updateReceipt)
-    .get(protect, getReceiptById);
+router.get('/:id/pdf', downloadReceiptPdf);
+router.get('/categories', protect, getReceiptCategories);
+router.post('/categories', protect, createReceiptCategory);
+router.put('/categories/:id', protect, updateReceiptCategory);
+router.delete('/categories/:id', protect, deleteReceiptCategory);
+router.post('/', protect, createReceipt);
+router.get('/', protect, getReceipts);
+router.put('/:id', protect, updateReceipt);
+router.get('/:id', protect, getReceiptById);
 
 export default router;
