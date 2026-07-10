@@ -86,13 +86,22 @@ export const handleWebhook = async (req, res) => {
 
                         const entityType = due.entityType;
                         let payerName = notes.name || 'Online Payment';
+                        let customId = '';
                         if (entityType === 'House') {
                             const h = await House.findById(due.entityId);
-                            if (h) payerName = `${h.name} (${h.customId})`;
+                            if (h) {
+                                payerName = `${h.name} (${h.customId})`;
+                                customId = h.customId;
+                            }
                         } else {
                             const m = await Member.findById(due.entityId);
-                            if (m) payerName = `${m.name} (${m.customId})`;
+                            if (m) {
+                                payerName = `${m.name} (${m.customId})`;
+                                customId = m.customId;
+                            }
                         }
+
+                        const payerPhone = payment.contact || notes.contact || '';
 
                         const account = await Account.findOne({ isPrimary: true });
                         if (!account) {
@@ -144,6 +153,50 @@ export const handleWebhook = async (req, res) => {
                         });
 
                         console.log(`Razorpay Collection Receipt: ${receiptNo} for ₹${payAmount}`);
+
+                        if (payerPhone) {
+                            const API_URL = process.env.WHATSAPP_API_URL;
+                            const TOKEN = process.env.WHATSAPP_TOKEN;
+                            if (API_URL && TOKEN) {
+                                let phone = payerPhone.replace(/\D/g, '');
+                                if (phone.length === 10) phone = '91' + phone;
+
+                                const amountStr = `₹${payAmount.toLocaleString('en-IN')}`;
+
+                                const payload = {
+                                    messaging_product: 'whatsapp',
+                                    to: phone,
+                                    type: 'template',
+                                    template: {
+                                        name: 'due_confirm',
+                                        language: { code: 'ml' },
+                                        components: [{
+                                            type: 'body',
+                                            parameters: [
+                                                { type: 'text', text: customId },
+                                                { type: 'text', text: due.period },
+                                                { type: 'text', text: amountStr }
+                                            ]
+                                        },
+                                        {
+                                            type: 'button',
+                                            sub_type: 'url',
+                                            index: '0',
+                                            parameters: [
+                                                { type: 'text', text: 'api/collections/receipts/' + receipt._id.toString() + '/pdf' }
+                                            ]
+                                        }]
+                                    }
+                                };
+
+                                axios.post(API_URL, payload, {
+                                    headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+                                    timeout: 10000
+                                }).catch(error => {
+                                    console.error('Failed to send due_confirm WhatsApp:', error.response?.data || error.message);
+                                });
+                            }
+                        }
                     } else {
                         const donorName = notes.donor_name || notes.name || 'Anonymous';
                         const donorPhone = payment.contact || notes.contact || '';
