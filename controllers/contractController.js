@@ -4,8 +4,8 @@ import Payment from '../models/Payment.js';
 import RentDue from '../models/RentDue.js';
 import Account from '../models/Account.js';
 import AccountTransaction from '../models/AccountTransaction.js';
-
-// ... (Existing Imports)
+import Receipt from '../models/Receipt.js';
+import SystemSettings from '../models/SystemSettings.js';
 
 // @desc    Create a new contract
 // @route   POST /api/contracts
@@ -255,14 +255,15 @@ const getFinancials = async (req, res) => {
         const depositTransactions = await AccountTransaction.find({
             contract: req.params.id,
             description: { $regex: /Security Deposit/i }
-        }).sort({ date: -1 });
+        }).populate('receipt', '_id receiptNo').sort({ date: -1 });
 
         // Format deposits to match expected frontend structure
         const deposits = depositTransactions.map(tx => ({
             _id: tx._id,
             amount: tx.amount,
             type: tx.type === 'INCOME' ? 'DEPOSIT' : 'REFUND',
-            paymentDate: tx.date
+            paymentDate: tx.date,
+            receipt: tx.receipt ? { _id: tx.receipt._id, receiptNo: tx.receipt.receiptNo } : null
         }));
 
         res.json({ rents, deposits });
@@ -415,6 +416,34 @@ const collectDeposit = async (req, res) => {
             paymentDate.setDate(providedDate.getDate());
         }
 
+        // Generate receipt number
+        let settings = await SystemSettings.findOne();
+        if (!settings) {
+            settings = await SystemSettings.create({});
+        }
+        const prefix = settings.depositSettings?.receiptPrefix || 'SD-';
+        const nextNum = settings.depositSettings?.receiptCurrentNumber || 1;
+        const receiptNo = `${prefix}${new Date().getFullYear()}-${nextNum}`;
+
+        // Create Receipt
+        const receipt = await Receipt.create({
+            receiptNo,
+            date: paymentDate,
+            amount: depositAmount,
+            type: 'INCOME',
+            account: account._id,
+            payer: contract.tenant.name,
+            payerContact: contract.tenant.phone,
+            description: `Security Deposit - ${contract.tenant.name} ${contract.rooms.map(r => r.roomNumber).join(', ')}`,
+            items: [{ description: 'Security Deposit', amount: depositAmount }]
+        });
+
+        // Update deposit receipt number
+        await SystemSettings.updateOne(
+            { _id: settings._id },
+            { $inc: { 'depositSettings.receiptCurrentNumber': 1 } }
+        );
+
         // Update account balance
         account.balance += depositAmount;
         await account.save();
@@ -423,6 +452,7 @@ const collectDeposit = async (req, res) => {
         await AccountTransaction.create({
             account: account._id,
             contract: contract._id,
+            receipt: receipt._id,
             type: 'INCOME',
             amount: depositAmount,
             balanceAfter: account.balance,
@@ -437,7 +467,7 @@ const collectDeposit = async (req, res) => {
         res.status(201).json({
             status: true,
             message: 'Deposit collected successfully',
-            data: { contract }
+            data: { contract, receipt: { _id: receipt._id, receiptNo: receipt.receiptNo } }
         });
 
     } catch (error) {

@@ -26,6 +26,11 @@ const systemSettingsSchema = mongoose.Schema({
         memberCronDay: { type: Number, default: 1 },
         memberCronTime: { type: String, default: '10:00' }
     },
+    depositSettings: {
+        receiptPrefix: { type: String, default: 'SD-' },
+        receiptCurrentNumber: { type: Number, default: 1 },
+        receiptSequenceLimit: { type: Number, default: 999 }
+    },
     // OTP for settings access
     settingsOTP: {
         code: { type: String },
