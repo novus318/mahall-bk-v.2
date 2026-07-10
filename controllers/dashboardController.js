@@ -82,8 +82,8 @@ export const getDashboardStats = async (req, res) => {
                             }
                         ],
                         houseCollected: [
-                            { $match: { entityType: 'House', status: 'PAID' } },
-                            { $group: { _id: null, total: { $sum: '$amount' } } }
+                            { $match: { entityType: 'House', paidAmount: { $gt: 0 } } },
+                            { $group: { _id: null, total: { $sum: '$paidAmount' } } }
                         ],
                         memberPending: [
                             { $match: { entityType: 'Member', status: { $in: ['PENDING', 'PARTIAL'] } } },
@@ -96,8 +96,8 @@ export const getDashboardStats = async (req, res) => {
                             }
                         ],
                         memberCollected: [
-                            { $match: { entityType: 'Member', status: 'PAID' } },
-                            { $group: { _id: null, total: { $sum: '$amount' } } }
+                            { $match: { entityType: 'Member', paidAmount: { $gt: 0 } } },
+                            { $group: { _id: null, total: { $sum: '$paidAmount' } } }
                         ]
                     }
                 }
@@ -118,8 +118,8 @@ export const getDashboardStats = async (req, res) => {
                             }
                         ],
                         collected: [
-                            { $match: { status: 'PAID' } },
-                            { $group: { _id: null, total: { $sum: '$amount' } } }
+                            { $match: { collectedAmount: { $gt: 0 } } },
+                            { $group: { _id: null, total: { $sum: '$collectedAmount' } } }
                         ]
                     }
                 }
