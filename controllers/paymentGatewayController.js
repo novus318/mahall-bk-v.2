@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import Razorpay from 'razorpay';
 import dotenv from 'dotenv';
+import axios from 'axios';
 import Receipt from '../models/Receipt.js';
 import ReceiptCategory from '../models/ReceiptCategory.js';
 import Account from '../models/Account.js';
@@ -166,7 +167,7 @@ export const handleWebhook = async (req, res) => {
 
                         const receiptNo = `ONL-${Date.now()}`;
 
-                        await Receipt.create({
+                        const receipt = await Receipt.create({
                             receiptNo,
                             date: new Date(),
                             amount,
@@ -192,6 +193,49 @@ export const handleWebhook = async (req, res) => {
                         });
 
                         console.log(`Razorpay Donation Receipt: ${receiptNo} for ₹${amount}`);
+
+                        if (donorPhone) {
+                            const API_URL = process.env.WHATSAPP_API_URL;
+                            const TOKEN = process.env.WHATSAPP_TOKEN;
+                            if (API_URL && TOKEN) {
+                                let phone = donorPhone.replace(/\D/g, '');
+                                if (phone.length === 10) phone = '91' + phone;
+
+                                const amountStr = `₹${amount.toLocaleString('en-IN')}`;
+
+                                const payload = {
+                                    messaging_product: 'whatsapp',
+                                    to: phone,
+                                    type: 'template',
+                                    template: {
+                                        name: 'receipt_confirm',
+                                        language: { code: 'ml' },
+                                        components: [{
+                                            type: 'body',
+                                            parameters: [
+                                                { type: 'text', text: donorName },
+                                                { type: 'text', text: amountStr }
+                                            ]
+                                        },
+                                        {
+                                            type: 'button',
+                                            sub_type: 'url',
+                                            index: '0',
+                                            parameters: [
+                                                { type: 'text', text: 'api/receipts/' + receipt._id.toString() + '/pdf' }
+                                            ]
+                                        }]
+                                    }
+                                };
+
+                                axios.post(API_URL, payload, {
+                                    headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+                                    timeout: 10000
+                                }).catch(error => {
+                                    console.error('Failed to send receipt_confirm WhatsApp:', error.response?.data || error.message);
+                                });
+                            }
+                        }
                     }
                 } catch (error) {
                     console.error('Razorpay payment.captured error:', error);
