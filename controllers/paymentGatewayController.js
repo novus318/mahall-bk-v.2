@@ -208,7 +208,7 @@ export const handleWebhook = async (req, res) => {
                                     to: phone,
                                     type: 'template',
                                     template: {
-                                        name: 'receipt_confirm',
+                                        name: 'reciept_confirm',
                                         language: { code: 'ml' },
                                         components: [{
                                             type: 'body',
