@@ -251,6 +251,28 @@ const getFinancials = async (req, res) => {
     try {
         const rents = await RentDue.find({ contract: req.params.id }).sort({ monthYear: 1 });
 
+        // Collect all receipt IDs from rent transactions
+        const receiptIds = rents.flatMap(r =>
+            (r.transactions || []).map(t => t.receipt).filter(Boolean)
+        );
+
+        // Fetch receipt info for all referenced receipts
+        let receiptMap = {};
+        if (receiptIds.length > 0) {
+            const receipts = await Receipt.find({ _id: { $in: receiptIds } }).select('_id receiptNo');
+            receiptMap = Object.fromEntries(receipts.map(r => [r._id.toString(), { _id: r._id, receiptNo: r.receiptNo }]));
+        }
+
+        // Enrich transactions with receipt info
+        const enrichedRents = rents.map(r => {
+            const doc = r.toObject();
+            doc.transactions = (doc.transactions || []).map(t => ({
+                ...t,
+                receipt: t.receipt ? receiptMap[t.receipt.toString()] || null : null
+            }));
+            return doc;
+        });
+
         // Fetch deposit transactions from AccountTransaction
         const depositTransactions = await AccountTransaction.find({
             contract: req.params.id,
@@ -266,7 +288,7 @@ const getFinancials = async (req, res) => {
             receipt: tx.receipt ? { _id: tx.receipt._id, receiptNo: tx.receipt.receiptNo } : null
         }));
 
-        res.json({ rents, deposits });
+        res.json({ rents: enrichedRents, deposits });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -299,7 +321,7 @@ const generateRent = async (req, res) => {
 const payRent = async (req, res) => {
     try {
         const { amount, date, notes, accountId } = req.body;
-        const rentDue = await RentDue.findById(req.params.rentId).populate('contract'); // Populate contract for linking
+        const rentDue = await RentDue.findById(req.params.rentId).populate('contract');
 
         if (!rentDue) return res.status(404).json({ message: 'Rent record not found' });
 
@@ -310,34 +332,50 @@ const payRent = async (req, res) => {
             return res.status(400).json({ message: `Payment exceeds pending balance of ₹${balance}` });
         }
 
-        // Logic to preserve current time if date is today or just merge provided date with current time components
-        // Actually, user standard practice: if they pick a date, usually they mean "that day".
-        // BUT user asked: "time should be taken current time"
-        // So we take the Provided Date (Year, Month, Day) and Current Time (Hours, Minutes, Seconds)
-
         let paymentDate = new Date();
         if (date) {
             const providedDate = new Date(date);
             paymentDate.setFullYear(providedDate.getFullYear());
             paymentDate.setMonth(providedDate.getMonth());
             paymentDate.setDate(providedDate.getDate());
-            // Hours/Minutes/Seconds remain from 'new Date()' (now)
         }
 
-        // --- Account Integration Start ---
+        let account = null;
         if (accountId) {
-            // 1. Validate Account
-            const account = await Account.findById(accountId);
+            account = await Account.findById(accountId);
             if (!account) return res.status(404).json({ message: 'Selected Account not found' });
 
-            // 2. Update Balance (Income - Credit)
             account.balance += paymentAmount;
             await account.save();
+        }
 
-            // 3. Create Account Transaction
+        // Create Receipt (atomically increment counter)
+        const settings = await SystemSettings.findOneAndUpdate(
+            {},
+            { $inc: { 'rentSettings.receiptCurrentNumber': 1 } },
+            { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+        const prefix = settings.rentSettings?.receiptPrefix || 'RNT-';
+        const nextNum = settings.rentSettings?.receiptCurrentNumber || 1;
+        const receiptNo = `${prefix}${new Date().getFullYear()}-${nextNum}`;
+
+        const receipt = await Receipt.create({
+            receiptNo,
+            date: paymentDate,
+            amount: paymentAmount,
+            type: 'INCOME',
+            account: account ? account._id : undefined,
+            payer: rentDue.contract.tenant.name,
+            payerContact: rentDue.contract.tenant.phone,
+            description: `Rent Payment - ${rentDue.monthYear} (${rentDue.contract.tenant.name})`,
+            items: [{ description: `Rent for ${rentDue.monthYear}`, amount: paymentAmount }]
+        });
+
+        if (account) {
             await AccountTransaction.create({
                 account: account._id,
-                contract: rentDue.contract._id, // Link to Contract/Tenant
+                contract: rentDue.contract._id,
+                receipt: receipt._id,
                 type: 'INCOME',
                 amount: paymentAmount,
                 balanceAfter: account.balance,
@@ -345,12 +383,12 @@ const payRent = async (req, res) => {
                 description: `Rent Payment - ${rentDue.monthYear} (${rentDue.contract.tenant.name})`
             });
         }
-        // --- Account Integration End ---
 
         rentDue.transactions.push({
             amount: paymentAmount,
             date: paymentDate,
-            notes: notes
+            notes: notes,
+            receipt: receipt._id
         });
 
         const newCollected = rentDue.collectedAmount + paymentAmount;
@@ -416,11 +454,12 @@ const collectDeposit = async (req, res) => {
             paymentDate.setDate(providedDate.getDate());
         }
 
-        // Generate receipt number
-        let settings = await SystemSettings.findOne();
-        if (!settings) {
-            settings = await SystemSettings.create({});
-        }
+        // Generate receipt number (atomically increment counter)
+        const settings = await SystemSettings.findOneAndUpdate(
+            {},
+            { $inc: { 'depositSettings.receiptCurrentNumber': 1 } },
+            { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
         const prefix = settings.depositSettings?.receiptPrefix || 'SD-';
         const nextNum = settings.depositSettings?.receiptCurrentNumber || 1;
         const receiptNo = `${prefix}${new Date().getFullYear()}-${nextNum}`;
@@ -437,12 +476,6 @@ const collectDeposit = async (req, res) => {
             description: `Security Deposit - ${contract.tenant.name} ${contract.rooms.map(r => r.roomNumber).join(', ')}`,
             items: [{ description: 'Security Deposit', amount: depositAmount }]
         });
-
-        // Update deposit receipt number
-        await SystemSettings.updateOne(
-            { _id: settings._id },
-            { $inc: { 'depositSettings.receiptCurrentNumber': 1 } }
-        );
 
         // Update account balance
         account.balance += depositAmount;

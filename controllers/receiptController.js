@@ -1,5 +1,6 @@
 import Receipt from '../models/Receipt.js';
 import ReceiptCategory from '../models/ReceiptCategory.js';
+import RentDue from '../models/RentDue.js';
 import SystemSettings from '../models/SystemSettings.js';
 import Account from '../models/Account.js';
 import AccountTransaction from '../models/AccountTransaction.js';
@@ -327,102 +328,153 @@ export const downloadReceiptPdf = async (req, res) => {
 
         if (!receipt) return res.status(404).json({ status: false, message: 'Receipt not found' });
 
-        const doc = new PDFDocument({ size: 'A5', margin: 30 });
+        // Check if this receipt is linked to a rent due (for partial payment info)
+        const rentDue = await RentDue.findOne({ 'transactions.receipt': receipt._id }).select('amount collectedAmount status monthYear');
+
+        const isPartial = rentDue?.status === 'PARTIAL';
+        const title = isPartial ? 'PARTIAL PAYMENT RECEIPT' : 'OFFICIAL RECEIPT';
+        const totalDue = rentDue?.amount || 0;
+        const balance = rentDue ? (totalDue - (rentDue.collectedAmount || 0)) : 0;
+
+        const PW = 144;
+        const MG = 6;
+        const CW = PW - MG * 2;
+        const LH = 10;
+
+        // Measure description height first
+        const desc = receipt.description || '';
+        const mDoc = new PDFDocument({ size: [PW, 1000], margin: MG });
+        mDoc.font('Helvetica').fontSize(7);
+        const descH = mDoc.heightOfString(desc, { width: CW - 2, lineBreak: true });
+        mDoc.end();
+
+        // Calculate total page height
+        let ph = MG;
+        ph += 9;                        // org full name
+        ph += 7;                        // (TMJ)
+        ph += 8;                        // address line 1
+        ph += 8;                        // address line 2
+        ph += 5;                        // hr
+        ph += 10;                       // title
+        ph += 5;                        // hr
+        ph += LH * 4;                   // receipt#, date, from, info rows
+        ph += 5;                        // hr
+        ph += 8;                        // Description label
+        ph += descH + 3;                // description text
+        ph += 5;                        // hr
+        ph += 11;                       // amount
+        if (isPartial) {
+            ph += 5;                    // hr
+            ph += LH;                   // total due
+            if (balance > 0) ph += LH;  // balance
+        }
+        ph += 5;                        // hr
+        ph += 14;                       // total row
+        ph += 5;                        // hr
+        ph += 7;                        // print timestamp
+        ph += MG;
+
+        const doc = new PDFDocument({ size: [PW, ph], margin: MG });
+
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `inline; filename=Receipt-${receipt.receiptNo}.pdf`);
+
         doc.pipe(res);
 
-        const PW = doc.page.width;
-        const MG = 30;
-        const CW = PW - MG * 2;
         let y = MG;
 
-        doc.font('Helvetica-Bold').fontSize(16).fillColor('#000')
-            .text('THAYINERI MUSLIM JAMA-AT', MG, y, { width: CW, align: 'center' });
-        y += 22;
+        const hr = () => {
+            doc.lineWidth(0.5).moveTo(MG, y).lineTo(PW - MG, y).strokeColor('#000').stroke();
+            y += 5;
+        };
 
-        doc.font('Helvetica').fontSize(9).fillColor('#555')
-            .text('(TMJ) | Thayineri Kara Road, Thayineri, Kerala 670307 | Ph: +91 8129059992', MG, y, { width: CW, align: 'center' });
-        y += 14;
-
-        doc.lineWidth(0.5).moveTo(MG, y).lineTo(PW - MG, y).strokeColor('#000').stroke();
-        y += 14;
-
-        doc.font('Helvetica-Bold').fontSize(15).fillColor('#000')
-            .text('OFFICIAL RECEIPT', MG, y, { width: CW, align: 'center' });
-        y += 22;
-
-        const L = 70;
-        const LH = 14;
-        doc.fontSize(9).fillColor('#000');
-        doc.font('Helvetica-Bold').text('Receipt No:', MG, y, { width: L });
-        doc.font('Helvetica').text(receipt.receiptNo, MG + L, y);
-        y += LH;
-
-        doc.font('Helvetica-Bold').text('Date:', MG, y, { width: L });
-        doc.font('Helvetica').text(new Date(receipt.date).toLocaleDateString('en-GB', {
-            day: '2-digit', month: 'short', year: 'numeric'
-        }), MG + L, y);
-        y += LH + 2;
-
-        doc.lineWidth(0.5).moveTo(MG, y).lineTo(PW - MG, y).strokeColor('#ccc').stroke();
-        y += 12;
-
-        const lw = 64;
-        doc.font('Helvetica-Bold').fontSize(9).fillColor('#000').text('Received From:', MG, y, { width: lw });
-        doc.font('Helvetica').fontSize(9).text(receipt.payer, MG + lw, y);
-        y += LH;
-
-        if (receipt.payerContact) {
-            doc.font('Helvetica').fontSize(8).fillColor('#777').text(receipt.payerContact, MG + lw, y);
-            y += 11;
-        }
-
-        doc.font('Helvetica-Bold').fontSize(9).fillColor('#000').text('Deposited To:', MG, y, { width: lw });
-        doc.font('Helvetica').fontSize(9).text(receipt.account?.name || '-', MG + lw, y);
-        y += LH;
-
-        doc.font('Helvetica-Bold').fontSize(9).fillColor('#000').text('Category:', MG, y, { width: lw });
-        doc.font('Helvetica').fontSize(9).text(receipt.category?.name || '-', MG + lw, y);
-        y += LH;
-
-        if (receipt.description) {
-            doc.font('Helvetica-Bold').fontSize(9).fillColor('#000').text('Description:', MG, y, { width: lw });
-            doc.font('Helvetica').fontSize(9).fillColor('#444').text(receipt.description, MG + lw, y, { width: CW - lw });
+        const row = (lbl, val) => {
+            const lw = 36;
+            doc.font('Helvetica-Bold').fontSize(7).fillColor('#000')
+                .text(lbl, MG, y, { width: lw });
+            doc.font('Helvetica').fontSize(7).fillColor('#000')
+                .text((val || '-') + '', MG + lw, y, { width: CW - lw, align: 'right' });
             y += LH;
+        };
+
+        doc.font('Helvetica-Bold').fontSize(7).fillColor('#000')
+            .text('THAYINERI MUSLIM JAMA-AT', MG, y, { width: CW, align: 'center' });
+        y += 9;
+
+        doc.font('Helvetica').fontSize(6).fillColor('#000')
+            .text('(TMJ)', MG, y, { width: CW, align: 'center' });
+        y += 7;
+
+        doc.font('Helvetica').fontSize(5.5).fillColor('#000')
+            .text('Thayineri Kara Road, Thayineri,', MG, y, { width: CW, align: 'center' });
+        y += 8;
+
+        doc.fontSize(5.5)
+            .text('Kerala 670307 | Ph: +91 8129059992', MG, y, { width: CW, align: 'center' });
+        y += 8;
+
+        hr();
+
+        doc.font('Helvetica-Bold').fontSize(8).fillColor('#000')
+            .text(title, MG, y, { width: CW, align: 'center' });
+        y += 10;
+
+        hr();
+
+        row('Receipt#:', receipt.receiptNo);
+        row('Date:', new Date(receipt.date).toLocaleDateString('en-GB', {
+            day: '2-digit', month: 'short', year: 'numeric'
+        }));
+        row('From:', receipt.payer);
+        row('Contact:', receipt.payerContact || '-');
+
+        hr();
+
+        doc.font('Helvetica-Bold').fontSize(7).fillColor('#000')
+            .text('Description', MG, y);
+        y += 8;
+
+        doc.font('Helvetica').fontSize(7).fillColor('#000')
+            .text(desc, MG + 2, y, { width: CW - 2, lineBreak: true });
+        y += descH + 3;
+
+        hr();
+
+        doc.font('Helvetica-Bold').fontSize(7).fillColor('#000')
+            .text('Amount', MG, y, { width: 36 });
+        doc.font('Helvetica').fontSize(7).fillColor('#000')
+            .text(Number(receipt.amount).toFixed(2), MG + 36, y, { width: CW - 36, align: 'right' });
+        y += 11;
+
+        if (isPartial) {
+            hr();
+
+            doc.font('Helvetica').fontSize(7).fillColor('#000')
+                .text('Total Due', MG, y, { width: 36 });
+            doc.text(totalDue.toFixed(2), MG + 36, y, { width: CW - 36, align: 'right' });
+            y += LH;
+
+            if (balance > 0) {
+                doc.font('Helvetica-Bold').fontSize(7).fillColor('#000')
+                    .text('Balance', MG, y, { width: 36 });
+                doc.text(balance.toFixed(2), MG + 36, y, { width: CW - 36, align: 'right' });
+                y += LH;
+            }
         }
 
-        doc.lineWidth(0.5).moveTo(MG, y).lineTo(PW - MG, y).strokeColor('#ccc').stroke();
-        y += 12;
+        hr();
 
-        const tColX = [MG, MG + 18, MG + CW - 90];
-        const tColW = [18, CW - 108, 90];
+        doc.font('Helvetica-Bold').fontSize(9).fillColor('#000')
+            .text('TOTAL', MG, y, { width: 48 });
+        doc.text('Rs. ' + Number(receipt.amount).toFixed(2), MG + 48, y, { width: CW - 48, align: 'right' });
+        y += 14;
 
-        doc.lineWidth(0.5).rect(MG, y, CW, 18).fillAndStroke('#000', '#000');
-        doc.fillColor('#fff').font('Helvetica-Bold').fontSize(8);
-        doc.text('#', tColX[0] + 5, y + 5, { width: tColW[0], align: 'center' });
-        doc.text('Particulars', tColX[1] + 5, y + 5, { width: tColW[1] });
-        doc.text('Amount', tColX[2] + 5, y + 5, { width: tColW[2] - 10, align: 'right' });
-        y += 18;
+        hr();
 
-        doc.font('Helvetica').fontSize(9).fillColor('#000');
-        receipt.items.forEach((item, i) => {
-            doc.lineWidth(0.5).rect(MG, y, CW, 20).stroke('#eee');
-            doc.text(String(i + 1), tColX[0] + 5, y + 5, { width: tColW[0], align: 'center' });
-            doc.text(item.description, tColX[1] + 5, y + 5, { width: tColW[1] });
-            doc.text('Rs. ' + Number(item.amount).toFixed(2), tColX[2] + 5, y + 5, { width: tColW[2] - 10, align: 'right' });
-            y += 20;
-        });
-
-        doc.lineWidth(0.5).rect(MG, y, CW, 22).fillAndStroke('#f5f5f5', '#000');
-        doc.fillColor('#000').font('Helvetica-Bold').fontSize(10);
-        doc.text('TOTAL', tColX[1] + 5, y + 5, { width: tColW[1] });
-        doc.text('Rs. ' + Number(receipt.amount).toFixed(2), tColX[2] + 5, y + 5, { width: tColW[2] - 10, align: 'right' });
-        y += 30;
-
-        doc.fontSize(8).fillColor('#888')
-            .text('Generated: ' + new Date().toLocaleString('en-IN', {
-                timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric',
+        doc.fontSize(5).fillColor('#000')
+            .text('Printed: ' + new Date().toLocaleString('en-IN', {
+                timeZone: 'Asia/Kolkata',
+                day: '2-digit', month: 'short', year: 'numeric',
                 hour: '2-digit', minute: '2-digit', hour12: true
             }), MG, y, { width: CW, align: 'center' });
 

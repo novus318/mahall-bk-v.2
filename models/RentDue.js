@@ -35,7 +35,8 @@ const rentDueSchema = new Schema({
     transactions: [{
         amount: { type: Number, required: true },
         date: { type: Date, default: Date.now },
-        notes: String
+        notes: String,
+        receipt: { type: Schema.Types.ObjectId, ref: 'Receipt' }
     }],
     notes: {
         type: String

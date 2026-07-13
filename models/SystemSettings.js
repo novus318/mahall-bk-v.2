@@ -31,6 +31,11 @@ const systemSettingsSchema = mongoose.Schema({
         receiptCurrentNumber: { type: Number, default: 1 },
         receiptSequenceLimit: { type: Number, default: 999 }
     },
+    rentSettings: {
+        receiptPrefix: { type: String, default: 'RNT-' },
+        receiptCurrentNumber: { type: Number, default: 1 },
+        receiptSequenceLimit: { type: Number, default: 999 }
+    },
     // OTP for settings access
     settingsOTP: {
         code: { type: String },
