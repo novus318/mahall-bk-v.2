@@ -8,11 +8,16 @@ import {
     getFinancials,
     generateRent,
     payRent,
-    collectDeposit
+    collectDeposit,
+    generateBulkRent
 } from '../controllers/contractController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
+
+// Bulk Rent Generation (must come before /:id)
+router.route('/generate/bulk')
+    .post(protect, generateBulkRent);
 
 router.route('/')
     .post(protect, createContract)
@@ -38,5 +43,9 @@ router.route('/:id/rents/:rentId/pay')
 // Simplified Deposit Route
 router.route('/:id/deposit/collect')
     .post(protect, collectDeposit);
+
+// Bulk Rent Generation
+router.route('/generate/bulk')
+    .post(protect, generateBulkRent);
 
 export default router;

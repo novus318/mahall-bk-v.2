@@ -127,6 +127,47 @@ const updateCollectionSettings = async (req, res) => {
     }
 };
 
+// @desc    Get Rent Settings
+// @route   GET /api/settings/rent
+// @access  Private/Admin
+const getRentSettings = async (req, res) => {
+    try {
+        let settings = await SystemSettings.findOne();
+        if (!settings) settings = await SystemSettings.create({});
+        res.json({
+            status: true,
+            data: settings.rentSettings || {}
+        });
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+// @desc    Update Rent Settings
+// @route   PUT /api/settings/rent
+// @access  Private/Admin
+const updateRentSettings = async (req, res) => {
+    try {
+        const { receiptPrefix, receiptCurrentNumber, automationEnabled, cronDay, cronTime } = req.body;
+
+        let settings = await SystemSettings.findOne();
+        if (!settings) settings = new SystemSettings({});
+
+        if (!settings.rentSettings) settings.rentSettings = {};
+
+        if (receiptPrefix !== undefined) settings.rentSettings.receiptPrefix = receiptPrefix;
+        if (receiptCurrentNumber !== undefined) settings.rentSettings.receiptCurrentNumber = receiptCurrentNumber;
+        if (automationEnabled !== undefined) settings.rentSettings.automationEnabled = automationEnabled;
+        if (cronDay !== undefined) settings.rentSettings.cronDay = cronDay;
+        if (cronTime !== undefined) settings.rentSettings.cronTime = cronTime;
+
+        await settings.save();
+        res.json({ status: true, message: 'Rent settings updated', data: settings.rentSettings });
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
 // @desc    Send OTP to alert contacts for settings access
 // @route   POST /api/settings/send-otp
 // @access  Private/Admin
@@ -330,4 +371,4 @@ export const sendPaymentAlert = async (payment, action) => {
     return { sent: successful, threshold: THRESHOLD };
 };
 
-export { getAlertContacts, updateAlertContacts, getPaymentSettings, updatePaymentSettings, getCollectionSettings, updateCollectionSettings, sendSettingsOTP, verifySettingsOTP };
+export { getAlertContacts, updateAlertContacts, getPaymentSettings, updatePaymentSettings, getCollectionSettings, updateCollectionSettings, getRentSettings, updateRentSettings, sendSettingsOTP, verifySettingsOTP };

@@ -6,6 +6,7 @@ import Account from '../models/Account.js';
 import AccountTransaction from '../models/AccountTransaction.js';
 import Receipt from '../models/Receipt.js';
 import SystemSettings from '../models/SystemSettings.js';
+import { generateBulkRentInternal } from '../services/contractService.js';
 
 // @desc    Create a new contract
 // @route   POST /api/contracts
@@ -509,6 +510,25 @@ const collectDeposit = async (req, res) => {
     }
 };
 
+const generateBulkRent = async (req, res) => {
+    try {
+        const { period } = req.body;
+
+        const { generatedCount, skippedCount, targetPeriod } = await generateBulkRentInternal({
+            period
+        });
+
+        res.json({
+            status: true,
+            message: `Bulk rent generation complete for ${targetPeriod}`,
+            data: { generated: generatedCount, skipped: skippedCount, period: targetPeriod }
+        });
+    } catch (error) {
+        console.error("Bulk Rent Generation Error:", error);
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
 export {
     createContract,
     getContracts,
@@ -518,5 +538,6 @@ export {
     getFinancials,
     generateRent,
     payRent,
-    collectDeposit // Renamed from manageDeposit
+    collectDeposit,
+    generateBulkRent
 };

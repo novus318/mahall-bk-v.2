@@ -1,45 +1,51 @@
 import cron from 'node-cron';
 import SystemSettings from '../models/SystemSettings.js';
 import { generateBulkDuesInternal } from '../services/collectionService.js';
+import { generateBulkRentInternal } from '../services/contractService.js';
 
 const startScheduler = () => {
-    // Run Every Minute to check for time match
     cron.schedule('* * * * *', async () => {
         try {
             const settings = await SystemSettings.findOne();
-            if (!settings || !settings.collectionSettings?.automationEnabled) return;
-
-            const { houseCronDay, memberCronDay, houseCronTime, memberCronTime } = settings.collectionSettings;
+            if (!settings) return;
 
             const now = new Date();
             const currentDay = now.getDate();
-            const currentTime = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); // "HH:mm"
+            const currentTime = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
-            // House Check
-            if (houseCronDay === currentDay && houseCronTime === currentTime) {
-                console.log('Triggering House Auto-Generation (Scheduled)');
-                const { generatedCount, targetPeriod } = await generateBulkDuesInternal({ 
-                    entityType: 'House', 
-                    frequency: 'Monthly' 
-                });
-                console.log(`Auto-Generated ${generatedCount} dues for House (${targetPeriod})`);
+            // Collections
+            if (settings.collectionSettings?.automationEnabled) {
+                const { houseCronDay, memberCronDay, houseCronTime, memberCronTime } = settings.collectionSettings;
+
+                if (houseCronDay === currentDay && houseCronTime === currentTime) {
+                    console.log('Triggering House Auto-Generation (Scheduled)');
+                    const r = await generateBulkDuesInternal({ entityType: 'House', frequency: 'Monthly' });
+                    console.log(`Auto-Generated ${r.generatedCount} dues for House (${r.targetPeriod})`);
+                }
+
+                if (memberCronDay === currentDay && memberCronTime === currentTime) {
+                    console.log('Triggering Member Auto-Generation (Scheduled)');
+                    const r = await generateBulkDuesInternal({ entityType: 'Member', frequency: 'Monthly' });
+                    console.log(`Auto-Generated ${r.generatedCount} dues for Member (${r.targetPeriod})`);
+                }
             }
 
-            // Member Check
-            if (memberCronDay === currentDay && memberCronTime === currentTime) {
-                console.log('Triggering Member Auto-Generation (Scheduled)');
-                const { generatedCount, targetPeriod } = await generateBulkDuesInternal({ 
-                    entityType: 'Member', 
-                    frequency: 'Monthly' 
-                });
-                console.log(`Auto-Generated ${generatedCount} dues for Member (${targetPeriod})`);
+            // Rent
+            if (settings.rentSettings?.automationEnabled) {
+                const { cronDay, cronTime } = settings.rentSettings;
+
+                if (cronDay === currentDay && cronTime === currentTime) {
+                    console.log('Triggering Rent Auto-Generation (Scheduled)');
+                    const r = await generateBulkRentInternal({});
+                    console.log(`Auto-Generated ${r.generatedCount} rents (${r.targetPeriod})`);
+                }
             }
 
         } catch (err) {
             console.error('Scheduler Error:', err);
         }
     });
-    console.log('Collection Scheduler Started (Live Check)');
+    console.log('Collection & Rent Scheduler Started (Live Check)');
 };
 
 export default startScheduler;

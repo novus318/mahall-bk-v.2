@@ -34,7 +34,11 @@ const systemSettingsSchema = mongoose.Schema({
     rentSettings: {
         receiptPrefix: { type: String, default: 'RNT-' },
         receiptCurrentNumber: { type: Number, default: 1 },
-        receiptSequenceLimit: { type: Number, default: 999 }
+        receiptSequenceLimit: { type: Number, default: 999 },
+        // Automation Configuration
+        automationEnabled: { type: Boolean, default: false },
+        cronDay: { type: Number, default: 1 },
+        cronTime: { type: String, default: '10:00' }
     },
     // OTP for settings access
     settingsOTP: {
