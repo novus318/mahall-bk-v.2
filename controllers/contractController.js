@@ -1,3 +1,4 @@
+import axios from 'axios';
 import Contract from '../models/Contract.js';
 import Room from '../models/Room.js';
 import Payment from '../models/Payment.js';
@@ -529,6 +530,152 @@ const generateBulkRent = async (req, res) => {
     }
 };
 
+const getRentDues = async (req, res) => {
+    try {
+        const { contractId, status, period } = req.query;
+        const query = {};
+        if (contractId) query.contract = contractId;
+        if (status) query.status = status;
+        if (period) query.monthYear = period;
+
+        const dues = await RentDue.find(query)
+            .populate('contract', 'tenant.name tenant.phone rentAmount rooms')
+            .sort({ monthYear: -1 });
+
+        res.json({ status: true, data: dues });
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+const getRentPeriods = async (req, res) => {
+    try {
+        const periods = await RentDue.distinct('monthYear', {});
+        res.json({ status: true, data: periods.sort() });
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+const getRentArrearsSummary = async (req, res) => {
+    try {
+        const match = { status: { $in: ['PENDING', 'PARTIAL'] } };
+
+        const arrears = await RentDue.aggregate([
+            { $match: match },
+            {
+                $group: {
+                    _id: '$contract',
+                    totalAmount: { $sum: { $subtract: ['$amount', '$collectedAmount'] } },
+                    pendingCount: { $sum: 1 },
+                    periods: { $push: '$monthYear' }
+                }
+            },
+            {
+                $lookup: {
+                    from: 'contracts',
+                    localField: '_id',
+                    foreignField: '_id',
+                    as: 'contractInfo'
+                }
+            },
+            { $unwind: { path: '$contractInfo', preserveNullAndEmptyArrays: true } },
+            {
+                $project: {
+                    contractId: '$_id',
+                    totalAmount: 1,
+                    pendingCount: 1,
+                    periods: 1,
+                    contract: {
+                        _id: '$contractInfo._id',
+                        tenant: '$contractInfo.tenant',
+                        rentAmount: '$contractInfo.rentAmount'
+                    }
+                }
+            },
+            { $sort: { totalAmount: -1 } }
+        ]);
+
+        res.json({ status: true, data: arrears });
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+const sendRentReminder = async (req, res) => {
+    try {
+        const { contractId } = req.body;
+
+        const dues = await RentDue.find({
+            contract: contractId,
+            status: { $in: ['PENDING', 'PARTIAL'] }
+        }).populate('contract', 'tenant');
+
+        if (dues.length === 0) {
+            return res.status(400).json({ status: false, message: 'No pending rents found' });
+        }
+
+        const tenant = dues[0].contract?.tenant;
+        if (!tenant || !tenant.phone) {
+            return res.status(400).json({ status: false, message: 'No contact number found' });
+        }
+
+        const totalAmount = dues.reduce((sum, d) => sum + (d.amount - d.collectedAmount), 0);
+        const periodsList = dues.map(d => d.monthYear).join(', ');
+
+        const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+        const API_URL = process.env.WHATSAPP_API_URL;
+
+        if (!WHATSAPP_TOKEN || !API_URL) {
+            return res.status(500).json({ status: false, message: 'WhatsApp configuration missing' });
+        }
+
+        let phone = tenant.phone.replace(/\D/g, '');
+        if (phone.length === 10) phone = '91' + phone;
+
+        const payload = {
+            messaging_product: 'whatsapp',
+            to: phone,
+            type: 'template',
+            template: {
+                name: 'rent_due_reminder_summary',
+                language: { code: 'ml' },
+                components: [
+                    {
+                        type: 'body',
+                        parameters: [
+                            { type: 'text', text: tenant.name || 'Tenant' },
+                            { type: 'text', text: `₹${totalAmount}` },
+                            { type: 'text', text: periodsList }
+                        ]
+                    },
+                    {
+                        type: 'button',
+                        sub_type: 'url',
+                        index: '0',
+                        parameters: [
+                            { type: 'text', text: 'cnt/' + contractId }
+                        ]
+                    }
+                ]
+            }
+        };
+
+        await axios.post(API_URL, payload, {
+            headers: {
+                'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        res.json({ status: true, message: 'Rent reminder sent' });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
 export {
     createContract,
     getContracts,
@@ -539,5 +686,9 @@ export {
     generateRent,
     payRent,
     collectDeposit,
-    generateBulkRent
+    generateBulkRent,
+    getRentDues,
+    getRentPeriods,
+    getRentArrearsSummary,
+    sendRentReminder
 };
