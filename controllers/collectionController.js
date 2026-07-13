@@ -166,20 +166,30 @@ const payDue = async (req, res) => {
 
         // Get Entity Name for 'Payer'
         let payerInfo = { name: "Unknown" };
+        let payerCustomId = '';
+        let payerPhone = '';
         if (due.entityType === 'House') {
-            const h = await House.findById(due.entityId);
+            const h = await House.findById(due.entityId).populate('head');
+            payerCustomId = h ? h.customId : '';
             payerInfo = {
                 name: h ? `${h.name} (${h.customId})` : "House",
                 entityType: 'House',
                 entityId: due.entityId
             };
+            if (h && h.head) {
+                payerPhone = h.head.whatsapp || h.head.mobile || '';
+            }
         } else {
             const m = await Member.findById(due.entityId);
+            payerCustomId = m ? m.customId : '';
             payerInfo = {
                 name: m ? `${m.name} (${m.customId})` : "Member",
                 entityType: 'Member',
                 entityId: due.entityId
             };
+            if (m) {
+                payerPhone = m.whatsapp || m.mobile || '';
+            }
         }
 
         const receipt = await CollectionReceipt.create({
@@ -231,6 +241,51 @@ const payDue = async (req, res) => {
                 payment: null, // or link if needed
                 collectionReceipt: receipt._id
             });
+        }
+
+        // 5. Send WhatsApp Notification
+        if (payerPhone) {
+            const API_URL = process.env.WHATSAPP_API_URL;
+            const TOKEN = process.env.WHATSAPP_TOKEN;
+            if (API_URL && TOKEN) {
+                let phone = payerPhone.replace(/\D/g, '');
+                if (phone.length === 10) phone = '91' + phone;
+
+                const amountStr = `₹${Number(amount).toLocaleString('en-IN')}`;
+
+                const payload = {
+                    messaging_product: 'whatsapp',
+                    to: phone,
+                    type: 'template',
+                    template: {
+                        name: 'due_confirm',
+                        language: { code: 'ml' },
+                        components: [{
+                            type: 'body',
+                            parameters: [
+                                { type: 'text', text: payerCustomId },
+                                { type: 'text', text: due.period },
+                                { type: 'text', text: amountStr }
+                            ]
+                        },
+                        {
+                            type: 'button',
+                            sub_type: 'url',
+                            index: '0',
+                            parameters: [
+                                { type: 'text', text: 'api/collections/receipts/' + receipt._id.toString() + '/pdf' }
+                            ]
+                        }]
+                    }
+                };
+
+                axios.post(API_URL, payload, {
+                    headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+                    timeout: 10000
+                }).catch(error => {
+                    console.error('Failed to send due_confirm WhatsApp:', error.response?.data || error.message);
+                });
+            }
         }
 
         res.json({ status: true, message: 'Payment recorded', data: { receipt, due } });
