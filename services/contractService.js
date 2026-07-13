@@ -1,5 +1,52 @@
+import axios from 'axios';
 import Contract from '../models/Contract.js';
 import RentDue from '../models/RentDue.js';
+
+const sendRentCollectionNotification = async (phone, name, amount, period) => {
+    try {
+        const { WHATSAPP_TOKEN, WHATSAPP_API_URL } = process.env;
+        if (!WHATSAPP_TOKEN || !WHATSAPP_API_URL) return;
+
+        let cleanPhone = phone.replace(/\D/g, '');
+        if (cleanPhone.length === 10) cleanPhone = '91' + cleanPhone;
+
+        const payload = {
+            messaging_product: 'whatsapp',
+            to: cleanPhone,
+            type: 'template',
+            template: {
+                name: 'rent_collection',
+                language: { code: 'ml' },
+                components: [{
+                    type: 'body',
+                    parameters: [
+                        { type: 'text', text: name },
+                        { type: 'text', text: `₹${Number(amount).toLocaleString('en-IN')}` },
+                        { type: 'text', text: period }
+                    ]
+                },
+              {
+                        type: 'button',
+                        sub_type: 'url',
+                        index: '0',
+                        parameters: [
+                            { type: 'text', text: 'payRent/' + contractId }
+                        ]
+                    }]
+            }
+        };
+
+        await axios.post(WHATSAPP_API_URL, payload, {
+            headers: {
+                'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
+                'Content-Type': 'application/json'
+            },
+            timeout: 10000
+        });
+    } catch (error) {
+        console.error(`Failed to send rent_collection WhatsApp to ${phone}:`, error.response?.data || error.message);
+    }
+};
 
 export const generateBulkRentInternal = async ({ period, endDate }) => {
     let targetPeriod = period;
@@ -44,6 +91,15 @@ export const generateBulkRentInternal = async ({ period, endDate }) => {
             amount: contract.rentAmount,
             status: 'PENDING'
         });
+
+        if (contract.tenant?.phone) {
+            sendRentCollectionNotification(
+                contract.tenant.phone,
+                contract.tenant.name || 'Tenant',
+                contract.rentAmount,
+                targetPeriod
+            );
+        }
 
         generatedCount++;
     }
