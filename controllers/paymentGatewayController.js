@@ -8,6 +8,8 @@ import Account from '../models/Account.js';
 import AccountTransaction from '../models/AccountTransaction.js';
 import CollectionDue from '../models/CollectionDue.js';
 import CollectionReceipt from '../models/CollectionReceipt.js';
+import Contract from '../models/Contract.js';
+import RentDue from '../models/RentDue.js';
 import House from '../models/House.js';
 import Member from '../models/Member.js';
 import SystemSettings from '../models/SystemSettings.js';
@@ -22,7 +24,7 @@ const razorpay = new Razorpay({
 
 export const createOrder = async (req, res) => {
     try {
-        const { amount, currency = 'INR', receipt_note, dueId, entityId, name, contact } = req.body;
+        const { amount, currency = 'INR', receipt_note, type, dueId, rentDueId, entityId, name, contact } = req.body;
 
         if (!amount) {
             return res.status(400).json({ message: 'Amount is required' });
@@ -31,10 +33,12 @@ export const createOrder = async (req, res) => {
         const options = {
             amount: amount * 100,
             currency,
-            receipt: `due_${Date.now()}`,
+            receipt: `pay_${Date.now()}`,
             notes: {
-                description: receipt_note || 'Due Payment',
+                description: receipt_note || 'Payment',
+                type: type || 'collection',
                 dueId,
+                rentDueId,
                 entityId,
                 name,
                 contact
@@ -66,7 +70,118 @@ export const handleWebhook = async (req, res) => {
                     const amount = payment.amount / 100;
                     const notes = payment.notes || {};
 
-                    if (notes.dueId) {
+                    if (notes.type === 'rent' && notes.rentDueId) {
+                        const rentDue = await RentDue.findById(notes.rentDueId).populate('contract');
+                        if (!rentDue) {
+                            console.error('RentDue not found:', notes.rentDueId);
+                            break;
+                        }
+
+                        const remaining = rentDue.amount - rentDue.collectedAmount;
+                        const payAmount = Math.min(amount, remaining);
+
+                        const settings = await SystemSettings.findOneAndUpdate(
+                            {},
+                            { $inc: { 'rentSettings.receiptCurrentNumber': 1 } },
+                            { upsert: true, new: true, setDefaultsOnInsert: true }
+                        );
+                        const prefix = settings.rentSettings?.receiptPrefix || 'RNT-';
+                        const nextNum = settings.rentSettings?.receiptCurrentNumber || 1;
+                        const receiptNo = `${prefix}${new Date().getFullYear()}-${nextNum}`;
+
+                        const account = await Account.findOne({ isPrimary: true });
+                        if (!account) {
+                            console.error('No Primary Account found');
+                            break;
+                        }
+
+                        const tenant = rentDue.contract?.tenant;
+                        const receipt = await Receipt.create({
+                            receiptNo,
+                            date: new Date(),
+                            amount: payAmount,
+                            type: 'INCOME',
+                            account: account._id,
+                            payer: tenant?.name || notes.name || 'Online Payment',
+                            payerContact: tenant?.phone || notes.contact || '',
+                            description: `Rent Payment - ${rentDue.monthYear} (${tenant?.name || 'Tenant'}) - Razorpay Ref: ${payment.id}`,
+                            items: [{ description: `Rent for ${rentDue.monthYear}`, amount: payAmount }]
+                        });
+
+                        rentDue.transactions.push({
+                            amount: payAmount,
+                            date: new Date(),
+                            notes: `Razorpay: ${payment.id}`,
+                            receipt: receipt._id
+                        });
+
+                        const newCollected = rentDue.collectedAmount + payAmount;
+                        rentDue.collectedAmount = newCollected;
+                        rentDue.paymentDate = new Date();
+                        rentDue.status = newCollected >= rentDue.amount ? 'PAID' : 'PARTIAL';
+                        await rentDue.save();
+
+                        account.balance += payAmount;
+                        await account.save();
+
+                        await AccountTransaction.create({
+                            account: account._id,
+                            contract: rentDue.contract._id,
+                            receipt: receipt._id,
+                            type: 'INCOME',
+                            amount: payAmount,
+                            balanceAfter: account.balance,
+                            date: new Date(),
+                            description: `Rent Payment - ${rentDue.monthYear} (${tenant?.name || 'Tenant'})`
+                        });
+
+                        console.log(`Razorpay Rent Receipt: ${receiptNo} for ₹${payAmount}`);
+
+                        const payerPhone = tenant?.phone || notes.contact || '';
+                        if (payerPhone) {
+                            const WHATSAPP_URL = process.env.WHATSAPP_API_URL;
+                            const TOKEN = process.env.WHATSAPP_TOKEN;
+                            if (WHATSAPP_URL && TOKEN) {
+                                let phone = payerPhone.replace(/\D/g, '');
+                                if (phone.length === 10) phone = '91' + phone;
+
+                                const amountStr = `₹${payAmount.toLocaleString('en-IN')}`;
+
+                                const wpPayload = {
+                                    messaging_product: 'whatsapp',
+                                    to: phone,
+                                    type: 'template',
+                                    template: {
+                                        name: 'rent_due_confirm',
+                                        language: { code: 'ml' },
+                                        components: [{
+                                            type: 'body',
+                                            parameters: [
+                                                { type: 'text', text: tenant?.name || 'Tenant' },
+                                                { type: 'text', text: amountStr },
+                                                { type: 'text', text: rentDue.monthYear },
+                                            ]
+                                        },
+                                        {
+                                            type: 'button',
+                                            sub_type: 'url',
+                                            index: '0',
+                                            parameters: [
+                                                { type: 'text', text: 'api/receipts/' + receipt._id.toString() + '/pdf' }
+                                            ]
+                                        }]
+                                    }
+                                };
+
+                                axios.post(WHATSAPP_URL, wpPayload, {
+                                    headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+                                    timeout: 10000
+                                }).catch(error => {
+                                    console.error('Failed to send rent WhatsApp:', error.response?.data || error.message);
+                                });
+                            }
+                        }
+                    } else if (notes.dueId) {
                         const due = await CollectionDue.findById(notes.dueId);
                         if (!due) {
                             console.error('CollectionDue not found:', notes.dueId);

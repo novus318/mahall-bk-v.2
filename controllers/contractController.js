@@ -654,7 +654,7 @@ const sendRentReminder = async (req, res) => {
                         sub_type: 'url',
                         index: '0',
                         parameters: [
-                            { type: 'text', text: 'cnt/' + contractId }
+                            { type: 'text', text: 'payRent/' + contractId }
                         ]
                     }
                 ]
@@ -676,6 +676,27 @@ const sendRentReminder = async (req, res) => {
     }
 };
 
+const getPublicRentDetails = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const contract = await Contract.findById(id).populate('rooms', 'roomNumber building');
+        if (!contract) return res.status(404).json({ status: false, message: 'Contract not found' });
+        res.json({ status: true, data: contract });
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+const getPublicRentDues = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const dues = await RentDue.find({ contract: id }).sort({ monthYear: -1 });
+        res.json({ status: true, data: dues });
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
 export {
     createContract,
     getContracts,
@@ -690,5 +711,7 @@ export {
     getRentDues,
     getRentPeriods,
     getRentArrearsSummary,
-    sendRentReminder
+    sendRentReminder,
+    getPublicRentDetails,
+    getPublicRentDues
 };
