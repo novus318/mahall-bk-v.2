@@ -288,6 +288,7 @@ export const handleWebhook = async (req, res) => {
                                         components: [{
                                             type: 'body',
                                             parameters: [
+                                                { type: 'text', text: payerName },
                                                 { type: 'text', text: customId },
                                                 { type: 'text', text: due.period },
                                                 { type: 'text', text: amountStr }
