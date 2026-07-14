@@ -625,6 +625,95 @@ const downloadCollectionReceiptPdf = async (req, res) => {
     }
 };
 
+// @desc    Get Print Data for Bluetooth Receipt Printer
+// @route   GET /api/collections/receipts/:id/print
+// @access  Public
+const getPrintData = async (req, res) => {
+    try {
+        const receipt = await CollectionReceipt.findById(req.params.id)
+            .populate({
+                path: 'payer.entityId',
+                select: 'name customId address phone'
+            })
+            .populate('dueId');
+
+        if (!receipt) {
+            return res.status(404).json({ status: false, message: 'Receipt not found' });
+        }
+
+        const isPartial = receipt.dueId?.status === 'PARTIAL';
+        const title = isPartial ? 'PARTIAL PAYMENT RECEIPT' : 'COLLECTION RECEIPT';
+        const desc = receipt.description || '';
+        const period = receipt.dueId?.period || '';
+        const totalDue = receipt.dueId?.amount || 0;
+        const paidAmount = receipt.dueId?.paidAmount || 0;
+        const balance = totalDue - paidAmount;
+        const hasPartial = receipt.dueId && (receipt.dueId.frequency === 'Yearly' || receipt.dueId.status === 'PARTIAL');
+        const payerName = receipt.payer.entityId?.name || receipt.payer.name || 'Unknown';
+        const customId = receipt.payer.entityId?.customId || '-';
+        const dateStr = new Date(receipt.date).toLocaleDateString('en-GB', {
+            day: '2-digit', month: 'short', year: 'numeric'
+        });
+        const timeStr = new Date().toLocaleString('en-IN', {
+            timeZone: 'Asia/Kolkata',
+            day: '2-digit', month: 'short', year: 'numeric',
+            hour: '2-digit', minute: '2-digit', hour12: true
+        });
+
+        const lines = [
+            { type: 0, content: "THAYINERI MUSLIM JAMA-AT", bold: 1, align: 1, format: 2 },
+            { type: 0, content: "(TMJ)", bold: 1, align: 1, format: 0 },
+            { type: 0, content: "Thayineri Kara Road, Thayineri,", bold: 0, align: 1, format: 0 },
+            { type: 0, content: "Kerala 670307 | Ph: +91 8129059992", bold: 0, align: 1, format: 0 },
+            { type: 0, content: " ", bold: 0, align: 0, format: 0 },
+            { type: 0, content: title, bold: 1, align: 1, format: 0 },
+            { type: 0, content: "--------------------------------", bold: 0, align: 0, format: 0 },
+            { type: 0, content: `Receipt#: ${receipt.receiptNo}`, bold: 0, align: 0, format: 0 },
+            { type: 0, content: `Date: ${dateStr}`, bold: 0, align: 0, format: 0 },
+            { type: 0, content: `From: ${payerName}`, bold: 0, align: 0, format: 0 },
+            { type: 0, content: `House: ${customId}`, bold: 0, align: 0, format: 0 },
+            { type: 0, content: "--------------------------------", bold: 0, align: 0, format: 0 },
+            { type: 0, content: "Description:", bold: 1, align: 0, format: 0 },
+            { type: 0, content: desc, bold: 0, align: 0, format: 0 },
+        ];
+
+        if (period) {
+            lines.push({ type: 0, content: `Period: ${period}`, bold: 0, align: 0, format: 0 });
+        }
+
+        lines.push({ type: 0, content: "--------------------------------", bold: 0, align: 0, format: 0 });
+        lines.push({ type: 0, content: `Amount: Rs. ${Number(receipt.amount).toFixed(2)}`, bold: 0, align: 2, format: 0 });
+
+        if (hasPartial) {
+            lines.push({ type: 0, content: "--------------------------------", bold: 0, align: 0, format: 0 });
+            lines.push({ type: 0, content: `Total Due: Rs. ${totalDue.toFixed(2)}`, bold: 0, align: 2, format: 0 });
+            if (balance > 0) {
+                lines.push({ type: 0, content: `Balance: Rs. ${balance.toFixed(2)}`, bold: 1, align: 2, format: 0 });
+            }
+        }
+
+        lines.push(
+            { type: 0, content: "--------------------------------", bold: 0, align: 0, format: 0 },
+            { type: 0, content: `TOTAL: Rs. ${Number(receipt.amount).toFixed(2)}`, bold: 1, align: 2, format: 1 },
+            { type: 0, content: "--------------------------------", bold: 0, align: 0, format: 0 },
+            { type: 0, content: " ", bold: 0, align: 0, format: 0 },
+            { type: 0, content: "Thank you!", bold: 1, align: 1, format: 0 },
+            { type: 0, content: " ", bold: 0, align: 0, format: 0 },
+            { type: 0, content: timeStr, bold: 0, align: 1, format: 0 },
+        );
+
+        const printDataObject = lines.reduce((acc, item, index) => {
+            acc[index] = item;
+            return acc;
+        }, {});
+
+        res.json(printDataObject);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
+
 // @desc    Get Distinct Periods
 // @route   GET /api/collections/periods
 // @access  Public/Private
@@ -885,6 +974,7 @@ export {
     confirmRejection,
     getCollectionReceipt,
     downloadCollectionReceiptPdf,
+    getPrintData,
     getCollectionPeriods,
     generateBulkDues,
     getArrearsSummary,
