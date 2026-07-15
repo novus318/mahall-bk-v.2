@@ -47,6 +47,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/payment-gateway', paymentGatewayRoutes);
+app.use('/api/print', printRoutes);
 app.use('/api/collections', collectionRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/receipts', receiptRoutes);
@@ -60,7 +61,6 @@ app.use('/api/buildings', buildingRoutes);
 app.use('/api/contracts', contractRoutes);
 app.use('/api/payables', payableRoutes);
 app.use('/api/certificates', certificateRoutes);
-app.use('/api/print', printRoutes);
 
 const PORT = process.env.PORT || 5000;
 
