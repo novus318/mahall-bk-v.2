@@ -485,3 +485,84 @@ export const downloadReceiptPdf = async (req, res) => {
         if (!res.headersSent) res.status(500).json({ status: false, message: error.message });
     }
 };
+
+// @desc    Get Thermal Print Data for Income Receipt
+// @route   GET /api/print/inc/:id
+export const getIncomePrintData = async (req, res) => {
+    try {
+        const receipt = await Receipt.findById(req.params.id)
+            .populate('category')
+            .populate('account');
+
+        if (!receipt) {
+            return res.status(404).json({ status: false, message: 'Receipt not found' });
+        }
+
+        const timeStr = new Date().toLocaleString('en-IN', {
+            timeZone: 'Asia/Kolkata',
+            day: '2-digit', month: 'short', year: 'numeric',
+            hour: '2-digit', minute: '2-digit', hour12: true
+        });
+
+        const dateStr = new Date(receipt.date).toLocaleDateString('en-GB', {
+            day: '2-digit', month: 'short', year: 'numeric'
+        });
+
+        const desc = receipt.description || '';
+        const items = receipt.items || [];
+        const payerContact = receipt.payerContact ? `Ph: ${receipt.payerContact}` : '';
+
+        const lines = [
+            { type: 0, content: "THAYINERI MUSLIM JAMA-AT", bold: 1, align: 1, format: 2 },
+            { type: 0, content: "(TMJ)", bold: 1, align: 1, format: 0 },
+            { type: 0, content: "Thayineri Kara Road, Thayineri,", bold: 0, align: 1, format: 0 },
+            { type: 0, content: "Kerala 670307 | Ph: +91 8129059992", bold: 0, align: 1, format: 0 },
+            { type: 0, content: " ", bold: 0, align: 0, format: 0 },
+            { type: 0, content: "INCOME RECEIPT", bold: 1, align: 1, format: 0 },
+            { type: 0, content: "--------------------------------", bold: 0, align: 0, format: 0 },
+            { type: 0, content: `Receipt#: ${receipt.receiptNo}`, bold: 0, align: 0, format: 0 },
+            { type: 0, content: `Date: ${dateStr}`, bold: 0, align: 0, format: 0 },
+            { type: 0, content: `Received From: ${receipt.payer}`, bold: 0, align: 0, format: 0 },
+            ...(payerContact ? [{ type: 0, content: payerContact, bold: 0, align: 0, format: 0 }] : []),
+            ...(receipt.category ? [{ type: 0, content: `Category: ${receipt.category.name}`, bold: 0, align: 0, format: 0 }] : []),
+            { type: 0, content: "--------------------------------", bold: 0, align: 0, format: 0 },
+        ];
+
+        if (desc) {
+            lines.push(
+                { type: 0, content: "Description:", bold: 1, align: 0, format: 0 },
+                { type: 0, content: desc, bold: 0, align: 0, format: 0 },
+                { type: 0, content: "--------------------------------", bold: 0, align: 0, format: 0 },
+            );
+        }
+
+        if (items.length > 0) {
+            lines.push({ type: 0, content: "Items:", bold: 1, align: 0, format: 0 });
+            items.forEach(item => {
+                lines.push({ type: 0, content: `${item.description}: Rs. ${Number(item.amount).toFixed(2)}`, bold: 0, align: 2, format: 0 });
+            });
+            lines.push({ type: 0, content: "--------------------------------", bold: 0, align: 0, format: 0 });
+        }
+
+        lines.push(
+            { type: 0, content: `Amount: Rs. ${Number(receipt.amount).toFixed(2)}`, bold: 0, align: 2, format: 0 },
+            { type: 0, content: "--------------------------------", bold: 0, align: 0, format: 0 },
+            { type: 0, content: `TOTAL: Rs. ${Number(receipt.amount).toFixed(2)}`, bold: 1, align: 2, format: 1 },
+            { type: 0, content: "--------------------------------", bold: 0, align: 0, format: 0 },
+            { type: 0, content: " ", bold: 0, align: 0, format: 0 },
+            { type: 0, content: "Thank you!", bold: 1, align: 1, format: 0 },
+            { type: 0, content: " ", bold: 0, align: 0, format: 0 },
+            { type: 0, content: timeStr, bold: 0, align: 1, format: 0 },
+        );
+
+        const printDataObject = lines.reduce((acc, item, index) => {
+            acc[index] = item;
+            return acc;
+        }, {});
+
+        res.json(printDataObject);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ status: false, message: error.message });
+    }
+};

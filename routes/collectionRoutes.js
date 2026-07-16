@@ -9,7 +9,7 @@ import {
     confirmRejection,
     getCollectionReceipt,
     downloadCollectionReceiptPdf,
-    getPrintData,
+    getCollectionPrintData,
     getCollectionPeriods,
     getArrearsSummary,
     sendArrearsReminder,
@@ -23,7 +23,7 @@ const router = express.Router();
 
 // Public Routes
 router.get('/receipts/:id/pdf', downloadCollectionReceiptPdf);
-router.get('/receipts/:id/print', getPrintData);
+router.get('/receipts/:id/print', getCollectionPrintData);
 router.get('/public/:type/:id/dues', getPublicEntityDues);
 router.get('/public/:type/:id/details', getPublicEntityDetails);
 

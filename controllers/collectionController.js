@@ -628,7 +628,7 @@ const downloadCollectionReceiptPdf = async (req, res) => {
 // @desc    Get Print Data for Bluetooth Receipt Printer
 // @route   GET /api/collections/receipts/:id/print
 // @access  Public
-const getPrintData = async (req, res) => {
+const getCollectionPrintData = async (req, res) => {
     try {
         const receipt = await CollectionReceipt.findById(req.params.id)
             .populate({
@@ -974,7 +974,7 @@ export {
     confirmRejection,
     getCollectionReceipt,
     downloadCollectionReceiptPdf,
-    getPrintData,
+    getCollectionPrintData,
     getCollectionPeriods,
     generateBulkDues,
     getArrearsSummary,
