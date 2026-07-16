@@ -25,7 +25,13 @@ const accountSchema = mongoose.Schema({
     balance: {
         type: Number,
         required: true,
-        default: 0
+        default: 0,
+        validate: {
+            validator: function (v) {
+                return v >= 0;
+            },
+            message: 'Balance cannot go negative (current: {VALUE})'
+        }
     },
     openingBalance: {
         type: Number,
