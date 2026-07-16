@@ -228,19 +228,30 @@ const payDue = async (req, res) => {
         // 4. Update Account Balance & Create Transaction
         const account = await Account.findById(accountId);
         if (account) {
-            account.balance += Number(amount);
-            await account.save();
+            const session = await mongoose.startSession();
+            try {
+                session.startTransaction();
 
-            await AccountTransaction.create({
-                account: account._id,
-                type: 'INCOME',
-                amount: Number(amount),
-                balanceAfter: account.balance,
-                date: date || new Date(),
-                description: `Collection from ${payerInfo.name} - ${due.period} (${due.frequency})`,
-                payment: null, // or link if needed
-                collectionReceipt: receipt._id
-            });
+                account.balance += Number(amount);
+                await account.save({ session });
+
+                await AccountTransaction.create([{
+                    account: account._id,
+                    type: 'INCOME',
+                    amount: Number(amount),
+                    balanceAfter: account.balance,
+                    date: date || new Date(),
+                    description: `Collection from ${payerInfo.name} - ${due.period} (${due.frequency})`,
+                    collectionReceipt: receipt._id
+                }], { session });
+
+                await session.commitTransaction();
+            } catch (txnError) {
+                await session.abortTransaction();
+                throw txnError;
+            } finally {
+                session.endSession();
+            }
         }
 
         // 5. Send WhatsApp Notification

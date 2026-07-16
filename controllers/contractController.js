@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import axios from 'axios';
 import Contract from '../models/Contract.js';
 import Room from '../models/Room.js';
@@ -206,34 +207,49 @@ const terminateContract = async (req, res) => {
                 paymentDate.setDate(providedDate.getDate());
             }
 
-            // Update account balance
-            account.balance -= refundAmount;
-            await account.save();
+            const session = await mongoose.startSession();
+            try {
+                session.startTransaction();
 
-            // Create Account Transaction
-            await AccountTransaction.create({
-                account: account._id,
-                contract: contract._id,
-                type: 'EXPENSE',
-                amount: refundAmount,
-                balanceAfter: account.balance,
-                date: paymentDate,
-                description: `Security Deposit Refund - ${contract.tenant.name}`
-            });
+                account.balance -= refundAmount;
+                await account.save({ session });
 
-            // Update contract deposit returned amount
-            contract.depositReturned = (contract.depositReturned || 0) + refundAmount;
+                await AccountTransaction.create([{
+                    account: account._id,
+                    contract: contract._id,
+                    type: 'EXPENSE',
+                    amount: refundAmount,
+                    balanceAfter: account.balance,
+                    date: paymentDate,
+                    description: `Security Deposit Refund - ${contract.tenant.name}`
+                }], { session });
+
+                contract.depositReturned = (contract.depositReturned || 0) + refundAmount;
+                contract.status = 'TERMINATED';
+                await contract.save({ session });
+
+                await Room.updateMany(
+                    { _id: { $in: contract.rooms } },
+                    { $set: { status: 'VACANT', currentContract: null } },
+                    { session }
+                );
+
+                await session.commitTransaction();
+            } catch (txnError) {
+                await session.abortTransaction();
+                throw txnError;
+            } finally {
+                session.endSession();
+            }
+        } else {
+            contract.status = 'TERMINATED';
+            await contract.save();
+
+            await Room.updateMany(
+                { _id: { $in: contract.rooms } },
+                { $set: { status: 'VACANT', currentContract: null } }
+            );
         }
-
-        // Terminate contract
-        contract.status = 'TERMINATED';
-        await contract.save();
-
-        // Vacate rooms
-        await Room.updateMany(
-            { _id: { $in: contract.rooms } },
-            { $set: { status: 'VACANT', currentContract: null } }
-        );
 
         res.json({
             status: true,
@@ -342,70 +358,82 @@ const payRent = async (req, res) => {
             paymentDate.setDate(providedDate.getDate());
         }
 
-        let account = null;
-        if (accountId) {
-            account = await Account.findById(accountId);
-            if (!account) return res.status(404).json({ message: 'Selected Account not found' });
+        const session = await mongoose.startSession();
+        try {
+            session.startTransaction();
 
-            account.balance += paymentAmount;
-            await account.save();
-        }
+            let account = null;
+            if (accountId) {
+                account = await Account.findById(accountId).session(session);
+                if (!account) {
+                    await session.abortTransaction();
+                    return res.status(404).json({ message: 'Selected Account not found' });
+                }
+                account.balance += paymentAmount;
+                await account.save({ session });
+            }
 
-        // Create Receipt (atomically increment counter)
-        const settings = await SystemSettings.findOneAndUpdate(
-            {},
-            { $inc: { 'rentSettings.receiptCurrentNumber': 1 } },
-            { upsert: true, new: true, setDefaultsOnInsert: true }
-        );
-        const prefix = settings.rentSettings?.receiptPrefix || 'RNT-';
-        const nextNum = settings.rentSettings?.receiptCurrentNumber || 1;
-        const receiptNo = `${prefix}${new Date().getFullYear()}-${nextNum}`;
+            const settings = await SystemSettings.findOneAndUpdate(
+                {},
+                { $inc: { 'rentSettings.receiptCurrentNumber': 1 } },
+                { upsert: true, new: true, setDefaultsOnInsert: true, session }
+            );
+            const prefix = settings.rentSettings?.receiptPrefix || 'RNT-';
+            const nextNum = settings.rentSettings?.receiptCurrentNumber || 1;
+            const receiptNo = `${prefix}${new Date().getFullYear()}-${nextNum}`;
 
-        const receipt = await Receipt.create({
-            receiptNo,
-            date: paymentDate,
-            amount: paymentAmount,
-            type: 'INCOME',
-            account: account ? account._id : undefined,
-            payer: rentDue.contract.tenant.name,
-            payerContact: rentDue.contract.tenant.phone,
-            description: `Rent Payment - ${rentDue.monthYear} (${rentDue.contract.tenant.name})`,
-            items: [{ description: `Rent for ${rentDue.monthYear}`, amount: paymentAmount }]
-        });
-
-        if (account) {
-            await AccountTransaction.create({
-                account: account._id,
-                contract: rentDue.contract._id,
-                receipt: receipt._id,
-                type: 'INCOME',
-                amount: paymentAmount,
-                balanceAfter: account.balance,
+            const receipt = await Receipt.create([{
+                receiptNo,
                 date: paymentDate,
-                description: `Rent Payment - ${rentDue.monthYear} (${rentDue.contract.tenant.name})`
+                amount: paymentAmount,
+                type: 'INCOME',
+                account: account ? account._id : undefined,
+                payer: rentDue.contract.tenant.name,
+                payerContact: rentDue.contract.tenant.phone,
+                description: `Rent Payment - ${rentDue.monthYear} (${rentDue.contract.tenant.name})`,
+                items: [{ description: `Rent for ${rentDue.monthYear}`, amount: paymentAmount }]
+            }], { session });
+
+            if (account) {
+                await AccountTransaction.create([{
+                    account: account._id,
+                    contract: rentDue.contract._id,
+                    receipt: receipt[0]._id,
+                    type: 'INCOME',
+                    amount: paymentAmount,
+                    balanceAfter: account.balance,
+                    date: paymentDate,
+                    description: `Rent Payment - ${rentDue.monthYear} (${rentDue.contract.tenant.name})`
+                }], { session });
+            }
+
+            rentDue.transactions.push({
+                amount: paymentAmount,
+                date: paymentDate,
+                notes: notes,
+                receipt: receipt[0]._id
             });
+
+            const newCollected = rentDue.collectedAmount + paymentAmount;
+            rentDue.collectedAmount = newCollected;
+            rentDue.paymentDate = paymentDate;
+            rentDue.notes = notes;
+
+            if (newCollected >= rentDue.amount) {
+                rentDue.status = 'PAID';
+            } else {
+                rentDue.status = 'PARTIAL';
+            }
+
+            await rentDue.save({ session });
+            await session.commitTransaction();
+            res.json(rentDue);
+        } catch (txnError) {
+            await session.abortTransaction();
+            throw txnError;
+        } finally {
+            session.endSession();
         }
-
-        rentDue.transactions.push({
-            amount: paymentAmount,
-            date: paymentDate,
-            notes: notes,
-            receipt: receipt._id
-        });
-
-        const newCollected = rentDue.collectedAmount + paymentAmount;
-        rentDue.collectedAmount = newCollected;
-        rentDue.paymentDate = paymentDate;
-        rentDue.notes = notes;
-
-        if (newCollected >= rentDue.amount) {
-            rentDue.status = 'PAID';
-        } else {
-            rentDue.status = 'PARTIAL';
-        }
-
-        await rentDue.save();
-        res.json(rentDue);
     } catch (error) {
         res.status(400).json({ message: error.message });
     }
@@ -456,54 +484,61 @@ const collectDeposit = async (req, res) => {
             paymentDate.setDate(providedDate.getDate());
         }
 
-        // Generate receipt number (atomically increment counter)
-        const settings = await SystemSettings.findOneAndUpdate(
-            {},
-            { $inc: { 'depositSettings.receiptCurrentNumber': 1 } },
-            { upsert: true, new: true, setDefaultsOnInsert: true }
-        );
-        const prefix = settings.depositSettings?.receiptPrefix || 'SD-';
-        const nextNum = settings.depositSettings?.receiptCurrentNumber || 1;
-        const receiptNo = `${prefix}${new Date().getFullYear()}-${nextNum}`;
+        const session = await mongoose.startSession();
+        try {
+            session.startTransaction();
 
-        // Create Receipt
-        const receipt = await Receipt.create({
-            receiptNo,
-            date: paymentDate,
-            amount: depositAmount,
-            type: 'INCOME',
-            account: account._id,
-            payer: contract.tenant.name,
-            payerContact: contract.tenant.phone,
-            description: `Security Deposit - ${contract.tenant.name} ${contract.rooms.map(r => r.roomNumber).join(', ')}`,
-            items: [{ description: 'Security Deposit', amount: depositAmount }]
-        });
+            const settings = await SystemSettings.findOneAndUpdate(
+                {},
+                { $inc: { 'depositSettings.receiptCurrentNumber': 1 } },
+                { upsert: true, new: true, setDefaultsOnInsert: true, session }
+            );
+            const prefix = settings.depositSettings?.receiptPrefix || 'SD-';
+            const nextNum = settings.depositSettings?.receiptCurrentNumber || 1;
+            const receiptNo = `${prefix}${new Date().getFullYear()}-${nextNum}`;
 
-        // Update account balance
-        account.balance += depositAmount;
-        await account.save();
+            const receipt = await Receipt.create([{
+                receiptNo,
+                date: paymentDate,
+                amount: depositAmount,
+                type: 'INCOME',
+                account: account._id,
+                payer: contract.tenant.name,
+                payerContact: contract.tenant.phone,
+                description: `Security Deposit - ${contract.tenant.name} ${contract.rooms.map(r => r.roomNumber).join(', ')}`,
+                items: [{ description: 'Security Deposit', amount: depositAmount }]
+            }], { session });
 
-        // Create Account Transaction
-        await AccountTransaction.create({
-            account: account._id,
-            contract: contract._id,
-            receipt: receipt._id,
-            type: 'INCOME',
-            amount: depositAmount,
-            balanceAfter: account.balance,
-            date: paymentDate,
-            description: `Security Deposit Collected - ${contract.tenant.name}`
-        });
+            account.balance += depositAmount;
+            await account.save({ session });
 
-        // Update contract deposit collected amount
-        contract.depositCollected = (contract.depositCollected || 0) + depositAmount;
-        await contract.save();
+            await AccountTransaction.create([{
+                account: account._id,
+                contract: contract._id,
+                receipt: receipt[0]._id,
+                type: 'INCOME',
+                amount: depositAmount,
+                balanceAfter: account.balance,
+                date: paymentDate,
+                description: `Security Deposit Collected - ${contract.tenant.name}`
+            }], { session });
 
-        res.status(201).json({
-            status: true,
-            message: 'Deposit collected successfully',
-            data: { contract, receipt: { _id: receipt._id, receiptNo: receipt.receiptNo } }
-        });
+            contract.depositCollected = (contract.depositCollected || 0) + depositAmount;
+            await contract.save({ session });
+
+            await session.commitTransaction();
+
+            res.status(201).json({
+                status: true,
+                message: 'Deposit collected successfully',
+                data: { contract, receipt: { _id: receipt[0]._id, receiptNo: receipt[0].receiptNo } }
+            });
+        } catch (txnError) {
+            await session.abortTransaction();
+            throw txnError;
+        } finally {
+            session.endSession();
+        }
 
     } catch (error) {
         console.error('Collect deposit error:', error);

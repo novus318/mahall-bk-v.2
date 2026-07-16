@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import crypto from 'crypto';
 import Razorpay from 'razorpay';
 import dotenv from 'dotenv';
@@ -121,19 +122,31 @@ export const handleWebhook = async (req, res) => {
                         rentDue.status = newCollected >= rentDue.amount ? 'PAID' : 'PARTIAL';
                         await rentDue.save();
 
-                        account.balance += payAmount;
-                        await account.save();
+                        const rentSession = await mongoose.startSession();
+                        try {
+                            rentSession.startTransaction();
 
-                        await AccountTransaction.create({
-                            account: account._id,
-                            contract: rentDue.contract._id,
-                            receipt: receipt._id,
-                            type: 'INCOME',
-                            amount: payAmount,
-                            balanceAfter: account.balance,
-                            date: new Date(),
-                            description: `Rent Payment - ${rentDue.monthYear} (${tenant?.name || 'Tenant'})`
-                        });
+                            account.balance += payAmount;
+                            await account.save({ session: rentSession });
+
+                            await AccountTransaction.create([{
+                                account: account._id,
+                                contract: rentDue.contract._id,
+                                receipt: receipt._id,
+                                type: 'INCOME',
+                                amount: payAmount,
+                                balanceAfter: account.balance,
+                                date: new Date(),
+                                description: `Rent Payment - ${rentDue.monthYear} (${tenant?.name || 'Tenant'})`
+                            }], { session: rentSession });
+
+                            await rentSession.commitTransaction();
+                        } catch (txnError) {
+                            await rentSession.abortTransaction();
+                            throw txnError;
+                        } finally {
+                            rentSession.endSession();
+                        }
 
                         console.log(`Razorpay Rent Receipt: ${receiptNo} for ₹${payAmount}`);
 
@@ -254,18 +267,30 @@ export const handleWebhook = async (req, res) => {
                         due.status = due.paidAmount >= due.amount ? 'PAID' : 'PARTIAL';
                         await due.save();
 
-                        account.balance += payAmount;
-                        await account.save();
+                        const collSession = await mongoose.startSession();
+                        try {
+                            collSession.startTransaction();
 
-                        await AccountTransaction.create({
-                            account: account._id,
-                            type: 'INCOME',
-                            amount: payAmount,
-                            balanceAfter: account.balance,
-                            date: new Date(),
-                            description: `Collection from ${payerName} - ${due.period} (${due.frequency})`,
-                            collectionReceipt: receipt._id
-                        });
+                            account.balance += payAmount;
+                            await account.save({ session: collSession });
+
+                            await AccountTransaction.create([{
+                                account: account._id,
+                                type: 'INCOME',
+                                amount: payAmount,
+                                balanceAfter: account.balance,
+                                date: new Date(),
+                                description: `Collection from ${payerName} - ${due.period} (${due.frequency})`,
+                                collectionReceipt: receipt._id
+                            }], { session: collSession });
+
+                            await collSession.commitTransaction();
+                        } catch (txnError) {
+                            await collSession.abortTransaction();
+                            throw txnError;
+                        } finally {
+                            collSession.endSession();
+                        }
 
                         console.log(`Razorpay Collection Receipt: ${receiptNo} for ₹${payAmount}`);
 
@@ -349,17 +374,29 @@ export const handleWebhook = async (req, res) => {
                             items: [{ description, amount }]
                         });
 
-                        account.balance += amount;
-                        await account.save();
+                        const donSession = await mongoose.startSession();
+                        try {
+                            donSession.startTransaction();
 
-                        await AccountTransaction.create({
-                            account: account._id,
-                            type: 'INCOME',
-                            amount,
-                            balanceAfter: account.balance,
-                            date: new Date(),
-                            description: `Receipt ${receiptNo} from ${donorName}`
-                        });
+                            account.balance += amount;
+                            await account.save({ session: donSession });
+
+                            await AccountTransaction.create([{
+                                account: account._id,
+                                type: 'INCOME',
+                                amount,
+                                balanceAfter: account.balance,
+                                date: new Date(),
+                                description: `Receipt ${receiptNo} from ${donorName}`
+                            }], { session: donSession });
+
+                            await donSession.commitTransaction();
+                        } catch (txnError) {
+                            await donSession.abortTransaction();
+                            throw txnError;
+                        } finally {
+                            donSession.endSession();
+                        }
 
                         console.log(`Razorpay Donation Receipt: ${receiptNo} for ₹${amount}`);
 

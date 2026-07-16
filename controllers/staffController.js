@@ -259,56 +259,61 @@ export const markPayslipPaid = async (req, res) => {
             throw new Error(`Insufficient account balance (Available: ₹${account.balance}, Required: ₹${finalAmount})`);
         }
 
-        // Update Payslip
-        payslip.leaveDays = leaveDays;
-        payslip.leaveDeduction = leaveDeduction;
-        payslip.advanceDeduction = advanceDeduction;
-        payslip.finalAmount = finalAmount;
-        payslip.status = 'PAID';
-        payslip.paymentDate = new Date();
+        const session = await mongoose.startSession();
+        try {
+            session.startTransaction();
 
-        await payslip.save();
+            payslip.leaveDays = leaveDays;
+            payslip.leaveDeduction = leaveDeduction;
+            payslip.advanceDeduction = advanceDeduction;
+            payslip.finalAmount = finalAmount;
+            payslip.status = 'PAID';
+            payslip.paymentDate = new Date();
+            await payslip.save({ session });
 
-        // Handle Advance Repayment
-        if (advanceDeduction > 0) {
-            staff.currentAdvance -= advanceDeduction;
-            await staff.save();
+            if (advanceDeduction > 0) {
+                staff.currentAdvance -= advanceDeduction;
+                await staff.save({ session });
 
-            await StaffTransaction.create({
+                await StaffTransaction.create([{
+                    staff: staff._id,
+                    type: 'ADVANCE_REPAID',
+                    amount: advanceDeduction,
+                    notes: `Repayment via Payslip ${payslip.monthYear}`,
+                    date: new Date()
+                }], { session });
+            }
+
+            await StaffTransaction.create([{
                 staff: staff._id,
-                type: 'ADVANCE_REPAID',
-                amount: advanceDeduction,
-                notes: `Repayment via Payslip ${payslip.monthYear}`,
+                type: 'SALARY_PAYMENT',
+                amount: payslip.baseSalary - leaveDeduction,
+                notes: `Salary Payment for ${payslip.monthYear}`,
                 date: new Date()
-            });
+            }], { session });
+
+            account.balance -= finalAmount;
+            await account.save({ session });
+
+            await AccountTransaction.create([{
+                account: account._id,
+                type: 'EXPENSE',
+                amount: finalAmount,
+                balanceAfter: account.balance,
+                date: new Date(),
+                description: `Salary Payment - ${staff.name} (${payslip.monthYear})`,
+                payment: null,
+                staff: staff._id
+            }], { session });
+
+            await session.commitTransaction();
+            res.json({ status: true, message: 'Payslip paid successfully', data: payslip });
+        } catch (txnError) {
+            await session.abortTransaction();
+            throw txnError;
+        } finally {
+            session.endSession();
         }
-
-        // Log Salary Payment (Staff View)
-        await StaffTransaction.create({
-            staff: staff._id,
-            type: 'SALARY_PAYMENT',
-            amount: payslip.baseSalary - leaveDeduction, // Gross - Leave
-            notes: `Salary Payment for ${payslip.monthYear}`,
-            date: new Date()
-        });
-
-        // Deduct from Account
-        account.balance -= finalAmount;
-        await account.save();
-
-        // Log Account Transaction
-        await AccountTransaction.create({
-            account: account._id,
-            type: 'EXPENSE',
-            amount: finalAmount,
-            balanceAfter: account.balance,
-            date: new Date(),
-            description: `Salary Payment - ${staff.name} (${payslip.monthYear})`,
-            payment: null,
-            staff: staff._id
-        });
-
-        res.json({ status: true, message: 'Payslip paid successfully', data: payslip });
 
     } catch (error) {
         res.status(500).json({ status: false, message: error.message });

@@ -330,6 +330,14 @@ export const deletePayable = async (req, res) => {
         // Reverse the loan amount from account
         const account = await Account.findById(payable.account).session(session);
         if (account) {
+            if (account.balance < payable.amount) {
+                await session.abortTransaction();
+                return res.status(400).json({
+                    status: false,
+                    message: `Insufficient balance to reverse loan (Available: ₹${account.balance}, Required: ₹${payable.amount})`
+                });
+            }
+
             account.balance -= payable.amount;
             await account.save({ session });
 

@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Payment from '../models/Payment.js';
 import PaymentCategory from '../models/PaymentCategory.js';
 import SystemSettings from '../models/SystemSettings.js';
@@ -133,28 +134,25 @@ export const createPayment = async (req, res) => {
             return res.status(400).json({ status: false, message: 'Total amount must be greater than 0' });
         }
 
-        // 2. Check Account Balance
+        // 2. Check Account
         const account = await Account.findById(accountId);
         if (!account) {
             return res.status(404).json({ status: false, message: 'Account not found' });
         }
 
         // 3. Determine payment status
-        // isPaid = true means payment is completed immediately (default behavior)
-        // isPaid = false or undefined means payment is PENDING
         const paymentStatus = isPaid === true ? 'COMPLETED' : 'PENDING';
         const paidAt = isPaid === true ? new Date() : null;
 
         // 4. Generate Receipt & Update Settings
         let settings = await SystemSettings.findOne();
-        if (!settings) settings = await SystemSettings.create({}); // handle legacy/init
+        if (!settings) settings = await SystemSettings.create({});
         if (!settings.paymentSettings) settings.paymentSettings = {};
 
         let { receiptPrefix = 'PA-', receiptCurrentNumber = 1, receiptSequenceLimit = 999 } = settings.paymentSettings;
         let receiptNo = '';
         let isUnique = false;
 
-        // Loop to ensure uniqueness (handling race conditions/manual deletes)
         while (!isUnique) {
             receiptNo = `${receiptPrefix}${String(receiptCurrentNumber).padStart(3, '0')}`;
 
@@ -215,22 +213,39 @@ export const createPayment = async (req, res) => {
 
         // 6. Only update account balance and create transaction if payment is completed
         if (paymentStatus === 'COMPLETED') {
-            account.balance -= totalAmount;
-            await account.save();
+            if (account.balance < totalAmount) {
+                return res.status(400).json({
+                    status: false,
+                    message: `Insufficient account balance (Available: ₹${account.balance}, Required: ₹${totalAmount})`
+                });
+            }
 
-            await AccountTransaction.create({
-                account: account._id,
-                relatedAccount: null,
-                payment: payment._id,
-                type: 'EXPENSE',
-                amount: totalAmount,
-                balanceAfter: account.balance,
-                date: payment.date,
-                description: `Payment ${receiptNo} to ${payee}`
-            });
+            const session = await mongoose.startSession();
+            try {
+                session.startTransaction();
+                account.balance -= totalAmount;
+                await account.save({ session });
+
+                await AccountTransaction.create([{
+                    account: account._id,
+                    relatedAccount: null,
+                    payment: payment._id,
+                    type: 'EXPENSE',
+                    amount: totalAmount,
+                    balanceAfter: account.balance,
+                    date: payment.date,
+                    description: `Payment ${receiptNo} to ${payee}`
+                }], { session });
+
+                await session.commitTransaction();
+            } catch (txnError) {
+                await session.abortTransaction();
+                throw txnError;
+            } finally {
+                session.endSession();
+            }
         }
 
-        // Send alert if amount > 10000
         await sendPaymentAlert(payment, 'CREATE');
 
         const statusMessage = paymentStatus === 'COMPLETED' 
@@ -261,7 +276,6 @@ export const updatePayment = async (req, res) => {
         const originalAccountId = payment.account;
         const newTotalAmount = items.reduce((sum, item) => sum + Number(item.amount), 0);
 
-        // Robust Date Parsing with Time Preservation
         let newDate = payment.date;
         if (date) {
             const inputDate = new Date(date);
@@ -278,53 +292,86 @@ export const updatePayment = async (req, res) => {
         // Handle Account & Financial Changes for COMPLETED payments
         if (payment.status === 'COMPLETED') {
             if (String(originalAccountId) === String(accountId)) {
-                // Same Account: Adjust Balance
-                // Logic: Balance + Old - New (Add back old expense amount, subtract new expense amount)
                 const account = await Account.findById(originalAccountId);
-                
-                // Reverse old payment and apply new payment
-                account.balance = account.balance + originalAmount - newTotalAmount;
-                await account.save();
+                const resultingBalance = account.balance + originalAmount - newTotalAmount;
 
-                // Update Transaction
-                await AccountTransaction.findOneAndUpdate(
-                    { payment: payment._id },
-                    {
-                        amount: newTotalAmount,
-                        date: newDate,
-                        balanceAfter: account.balance,
-                        description: `Payment ${payment.receiptNo} to ${payee}`
-                    }
-                );
+                if (resultingBalance < 0) {
+                    return res.status(400).json({
+                        status: false,
+                        message: `Insufficient account balance (Available: ₹${account.balance}, Required extra: ₹${newTotalAmount - originalAmount})`
+                    });
+                }
+
+                const session = await mongoose.startSession();
+                try {
+                    session.startTransaction();
+                    account.balance = resultingBalance;
+                    await account.save({ session });
+
+                    await AccountTransaction.findOneAndUpdate(
+                        { payment: payment._id },
+                        {
+                            amount: newTotalAmount,
+                            date: newDate,
+                            balanceAfter: account.balance,
+                            description: `Payment ${payment.receiptNo} to ${payee}`
+                        },
+                        { session }
+                    );
+
+                    await session.commitTransaction();
+                } catch (txnError) {
+                    await session.abortTransaction();
+                    throw txnError;
+                } finally {
+                    session.endSession();
+                }
             } else {
-                // Account Changed
-                // A. Revert Old Account (Add back original expense)
                 const oldAccount = await Account.findById(originalAccountId);
-                oldAccount.balance += originalAmount;
-                await oldAccount.save();
-
-                // Delete Old Transaction
-                await AccountTransaction.findOneAndDelete({ payment: payment._id });
-
-                // B. Apply to New Account (Subtract new expense)
                 const newAccount = await Account.findById(accountId);
-                newAccount.balance -= newTotalAmount;
-                await newAccount.save();
 
-                // Create New Transaction
-                await AccountTransaction.create({
-                    account: newAccount._id,
-                    payment: payment._id,
-                    type: 'EXPENSE',
-                    amount: newTotalAmount,
-                    balanceAfter: newAccount.balance,
-                    date: newDate,
-                    description: `Payment ${payment.receiptNo} to ${payee}`
-                });
+                if (newAccount.balance < newTotalAmount) {
+                    return res.status(400).json({
+                        status: false,
+                        message: `Insufficient balance in target account (Available: ₹${newAccount.balance}, Required: ₹${newTotalAmount})`
+                    });
+                }
+
+                const session = await mongoose.startSession();
+                try {
+                    session.startTransaction();
+
+                    oldAccount.balance += originalAmount;
+                    await oldAccount.save({ session });
+
+                    await AccountTransaction.findOneAndDelete(
+                        { payment: payment._id },
+                        { session }
+                    );
+
+                    newAccount.balance -= newTotalAmount;
+                    await newAccount.save({ session });
+
+                    await AccountTransaction.create([{
+                        account: newAccount._id,
+                        payment: payment._id,
+                        type: 'EXPENSE',
+                        amount: newTotalAmount,
+                        balanceAfter: newAccount.balance,
+                        date: newDate,
+                        description: `Payment ${payment.receiptNo} to ${payee}`
+                    }], { session });
+
+                    await session.commitTransaction();
+                } catch (txnError) {
+                    await session.abortTransaction();
+                    throw txnError;
+                } finally {
+                    session.endSession();
+                }
             }
         }
 
-        // Update Payment Record
         payment.date = newDate;
         payment.paymentDate = newDate;
         payment.account = accountId;
@@ -338,7 +385,6 @@ export const updatePayment = async (req, res) => {
 
         await payment.save();
 
-        // Send alert if amount > 10000
         await sendPaymentAlert(payment, 'UPDATE');
 
         res.json({ status: true, data: payment, message: 'Payment updated successfully' });
@@ -349,16 +395,14 @@ export const updatePayment = async (req, res) => {
     }
 };
 
-// Mark a pending payment as paid (completed)
 export const markPaymentAsPaid = async (req, res) => {
     try {
         const { id } = req.params;
-        const { date, accountId } = req.body; // Optional: allow changing date/account when marking as paid
+        const { date, accountId } = req.body;
 
         const payment = await Payment.findById(id);
         if (!payment) return res.status(404).json({ status: false, message: 'Payment not found' });
 
-        // Check current status
         if (payment.status === 'COMPLETED') {
             return res.status(400).json({ status: false, message: 'Payment is already completed' });
         }
@@ -367,40 +411,55 @@ export const markPaymentAsPaid = async (req, res) => {
             return res.status(400).json({ status: false, message: 'Cannot complete a deleted payment' });
         }
 
-        // Get the account (use provided accountId or existing)
         const account = await Account.findById(accountId || payment.account);
         if (!account) {
             return res.status(404).json({ status: false, message: 'Account not found' });
         }
 
         const paymentAmount = payment.amount;
+        if (account.balance < paymentAmount) {
+            return res.status(400).json({
+                status: false,
+                message: `Insufficient account balance (Available: ₹${account.balance}, Required: ₹${paymentAmount})`
+            });
+        }
+
         const paymentDate = date ? new Date(date) : new Date();
 
-        // Update account balance
-        account.balance -= paymentAmount;
-        await account.save();
+        const session = await mongoose.startSession();
+        try {
+            session.startTransaction();
 
-        // Create account transaction
-        await AccountTransaction.create({
-            account: account._id,
-            relatedAccount: null,
-            payment: payment._id,
-            type: 'EXPENSE',
-            amount: paymentAmount,
-            balanceAfter: account.balance,
-            date: paymentDate,
-            description: `Payment ${payment.receiptNo} to ${payment.payee} (Marked as Paid)`
-        });
+            account.balance -= paymentAmount;
+            await account.save({ session });
 
-        // Update payment status
-        payment.status = 'COMPLETED';
-        payment.paidAt = new Date();
-        payment.account = account._id;
-        if (date) {
-            payment.date = paymentDate;
-            payment.paymentDate = paymentDate;
+            await AccountTransaction.create([{
+                account: account._id,
+                relatedAccount: null,
+                payment: payment._id,
+                type: 'EXPENSE',
+                amount: paymentAmount,
+                balanceAfter: account.balance,
+                date: paymentDate,
+                description: `Payment ${payment.receiptNo} to ${payment.payee} (Marked as Paid)`
+            }], { session });
+
+            payment.status = 'COMPLETED';
+            payment.paidAt = new Date();
+            payment.account = account._id;
+            if (date) {
+                payment.date = paymentDate;
+                payment.paymentDate = paymentDate;
+            }
+            await payment.save({ session });
+
+            await session.commitTransaction();
+        } catch (txnError) {
+            await session.abortTransaction();
+            throw txnError;
+        } finally {
+            session.endSession();
         }
-        await payment.save();
 
         res.json({ 
             status: true, 
@@ -414,7 +473,6 @@ export const markPaymentAsPaid = async (req, res) => {
     }
 };
 
-// Delete a payment (soft delete - only reverses transaction, keeps payment record)
 export const deletePayment = async (req, res) => {
     try {
         const { id } = req.params;
@@ -422,23 +480,37 @@ export const deletePayment = async (req, res) => {
         const payment = await Payment.findById(id);
         if (!payment) return res.status(404).json({ status: false, message: 'Payment not found' });
 
-        // If payment was completed, reverse the account transaction
         if (payment.status === 'COMPLETED') {
             const account = await Account.findById(payment.account);
-            if (account) {
-                // Reverse the balance
+
+            const session = await mongoose.startSession();
+            try {
+                session.startTransaction();
+
                 account.balance += payment.amount;
-                await account.save();
+                await account.save({ session });
 
-                // Delete the account transaction
-                await AccountTransaction.findOneAndDelete({ payment: payment._id });
+                await AccountTransaction.findOneAndDelete(
+                    { payment: payment._id },
+                    { session }
+                );
+
+                payment.status = 'DELETED';
+                payment.deletedAt = new Date();
+                await payment.save({ session });
+
+                await session.commitTransaction();
+            } catch (txnError) {
+                await session.abortTransaction();
+                throw txnError;
+            } finally {
+                session.endSession();
             }
+        } else {
+            payment.status = 'DELETED';
+            payment.deletedAt = new Date();
+            await payment.save();
         }
-
-        // Soft delete: Mark payment as DELETED instead of removing it
-        payment.status = 'DELETED';
-        payment.deletedAt = new Date();
-        await payment.save();
 
         res.json({ 
             status: true, 

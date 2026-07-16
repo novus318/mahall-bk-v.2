@@ -143,34 +143,44 @@ export const transferFunds = async (req, res) => {
             return res.status(400).json({ status: false, message: 'Insufficient funds' });
         }
 
-        fromAccount.balance -= Number(amount);
-        toAccount.balance += Number(amount);
+        const session = await mongoose.startSession();
+        try {
+            session.startTransaction();
 
-        await fromAccount.save();
-        await toAccount.save();
+            fromAccount.balance -= Number(amount);
+            toAccount.balance += Number(amount);
 
-        // Log Transactions with Indian timezone
-        await AccountTransaction.create({
-            account: fromAccount._id,
-            relatedAccount: toAccount._id,
-            type: 'TRANSFER_OUT',
-            amount: Number(amount),
-            balanceAfter: fromAccount.balance,
-            date: getIndianTime(),
-            description: description || `Transfer to ${toAccount.name}`
-        });
+            await fromAccount.save({ session });
+            await toAccount.save({ session });
 
-        await AccountTransaction.create({
-            account: toAccount._id,
-            relatedAccount: fromAccount._id,
-            type: 'TRANSFER_IN',
-            amount: Number(amount),
-            balanceAfter: toAccount.balance,
-            date: getIndianTime(),
-            description: description || `Transfer from ${fromAccount.name}`
-        });
+            await AccountTransaction.create([{
+                account: fromAccount._id,
+                relatedAccount: toAccount._id,
+                type: 'TRANSFER_OUT',
+                amount: Number(amount),
+                balanceAfter: fromAccount.balance,
+                date: getIndianTime(),
+                description: description || `Transfer to ${toAccount.name}`
+            }], { session });
 
-        res.json({ status: true, message: 'Transfer successful' });
+            await AccountTransaction.create([{
+                account: toAccount._id,
+                relatedAccount: fromAccount._id,
+                type: 'TRANSFER_IN',
+                amount: Number(amount),
+                balanceAfter: toAccount.balance,
+                date: getIndianTime(),
+                description: description || `Transfer from ${fromAccount.name}`
+            }], { session });
+
+            await session.commitTransaction();
+            res.json({ status: true, message: 'Transfer successful' });
+        } catch (txnError) {
+            await session.abortTransaction();
+            throw txnError;
+        } finally {
+            session.endSession();
+        }
 
     } catch (error) {
         res.status(500).json({ status: false, message: error.message });

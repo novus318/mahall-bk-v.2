@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Receipt from '../models/Receipt.js';
 import ReceiptCategory from '../models/ReceiptCategory.js';
 import RentDue from '../models/RentDue.js';
@@ -198,20 +199,31 @@ export const createReceipt = async (req, res) => {
         });
 
         // 5. Update Account Balance (ADD Money)
-        account.balance += totalAmount;
-        await account.save();
+        const session = await mongoose.startSession();
+        try {
+            session.startTransaction();
 
-        // 6. Log Transaction
-        await AccountTransaction.create({
-            account: account._id,
-            relatedAccount: null,
-            receipt: receipt._id, // Link to receipt
-            type: 'INCOME',
-            amount: totalAmount,
-            balanceAfter: account.balance,
-            date: receipt.date,
-            description: `Receipt ${receiptNo} from ${payer}`
-        });
+            account.balance += totalAmount;
+            await account.save({ session });
+
+            await AccountTransaction.create([{
+                account: account._id,
+                relatedAccount: null,
+                receipt: receipt._id,
+                type: 'INCOME',
+                amount: totalAmount,
+                balanceAfter: account.balance,
+                date: receipt.date,
+                description: `Receipt ${receiptNo} from ${payer}`
+            }], { session });
+
+            await session.commitTransaction();
+        } catch (txnError) {
+            await session.abortTransaction();
+            throw txnError;
+        } finally {
+            session.endSession();
+        }
 
         res.status(201).json({ status: true, data: receipt, message: 'Receipt created successfully' });
 
@@ -252,50 +264,74 @@ export const updateReceipt = async (req, res) => {
         if (newTotalAmount <= 0) return res.status(400).json({ status: false, message: 'Total amount must be greater than 0' });
 
         // 1. Handle Account & Financial Changes
-        if (String(originalAccountId) === String(accountId)) {
-            // Same Account: Adjust Balance
-            // Logic: Balance - Old + New (Remove Old Income, Add New Income)
-            const account = await Account.findById(originalAccountId);
+        const session = await mongoose.startSession();
+        try {
+            session.startTransaction();
 
-            // Note: Unlike expenses, Income ADDS to balance. So to undo, we subtract.
-            account.balance = account.balance - originalAmount + newTotalAmount;
-            await account.save();
+            if (String(originalAccountId) === String(accountId)) {
+                const account = await Account.findById(originalAccountId).session(session);
+                const newBalance = account.balance - originalAmount + newTotalAmount;
 
-            // Update Transaction
-            await AccountTransaction.findOneAndUpdate(
-                { receipt: receipt._id },
-                {
-                    amount: newTotalAmount,
-                    date: newDate,
-                    balanceAfter: account.balance,
-                    description: `Receipt ${receipt.receiptNo} from ${payer}`
+                if (newBalance < 0) {
+                    await session.abortTransaction();
+                    return res.status(400).json({
+                        status: false,
+                        message: `Insufficient balance to adjust receipt (Available: ₹${account.balance})`
+                    });
                 }
-            );
-        } else {
-            // Account Changed
-            // A. Revert Old Account (Subtract original income)
-            const oldAccount = await Account.findById(originalAccountId);
-            oldAccount.balance -= originalAmount;
-            await oldAccount.save();
 
-            // Delete Old Transaction
-            await AccountTransaction.findOneAndDelete({ receipt: receipt._id });
+                account.balance = newBalance;
+                await account.save({ session });
 
-            // B. Apply to New Account (Add new income)
-            const newAccount = await Account.findById(accountId);
-            newAccount.balance += newTotalAmount;
-            await newAccount.save();
+                await AccountTransaction.findOneAndUpdate(
+                    { receipt: receipt._id },
+                    {
+                        amount: newTotalAmount,
+                        date: newDate,
+                        balanceAfter: account.balance,
+                        description: `Receipt ${receipt.receiptNo} from ${payer}`
+                    },
+                    { session }
+                );
+            } else {
+                const oldAccount = await Account.findById(originalAccountId).session(session);
+                if (oldAccount.balance < originalAmount) {
+                    await session.abortTransaction();
+                    return res.status(400).json({
+                        status: false,
+                        message: `Insufficient balance in original account to reverse (Available: ₹${oldAccount.balance}, Required: ₹${originalAmount})`
+                    });
+                }
 
-            // Create New Transaction
-            await AccountTransaction.create({
-                account: newAccount._id,
-                receipt: receipt._id,
-                type: 'INCOME',
-                amount: newTotalAmount,
-                balanceAfter: newAccount.balance,
-                date: newDate,
-                description: `Receipt ${receipt.receiptNo} from ${payer}`
-            });
+                oldAccount.balance -= originalAmount;
+                await oldAccount.save({ session });
+
+                await AccountTransaction.findOneAndDelete(
+                    { receipt: receipt._id },
+                    { session }
+                );
+
+                const newAccount = await Account.findById(accountId).session(session);
+                newAccount.balance += newTotalAmount;
+                await newAccount.save({ session });
+
+                await AccountTransaction.create([{
+                    account: newAccount._id,
+                    receipt: receipt._id,
+                    type: 'INCOME',
+                    amount: newTotalAmount,
+                    balanceAfter: newAccount.balance,
+                    date: newDate,
+                    description: `Receipt ${receipt.receiptNo} from ${payer}`
+                }], { session });
+            }
+
+            await session.commitTransaction();
+        } catch (txnError) {
+            await session.abortTransaction();
+            throw txnError;
+        } finally {
+            session.endSession();
         }
 
         // 2. Update Receipt Record

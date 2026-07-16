@@ -355,45 +355,54 @@ export const payRent = async (req, res) => {
 
         transaction.paidAmount = (transaction.paidAmount || 0) + paymentAmount;
         
-        // Update Account Balance
-        account.balance += paymentAmount;
-        await account.save();
+        const session = await mongoose.startSession();
+        try {
+            session.startTransaction();
 
-        let receipt = null;
-        let receiptNo = null;
+            account.balance += paymentAmount;
+            await account.save({ session });
 
-        const combinedItemNames = transaction.items.map(i => i.itemId?.name || 'Item').join(', ');
+            let receipt = null;
+            let receiptNo = null;
 
-        // Check if fully paid to generate Official Receipt
-        if (transaction.paidAmount >= transaction.totalRentAmount && !transaction.receiptId) {
-            const count = await InventoryReceipt.countDocuments();
-            receiptNo = `INV-RC-${new Date().getFullYear()}-${count + 1}`;
+            const combinedItemNames = transaction.items.map(i => i.itemId?.name || 'Item').join(', ');
 
-            receipt = await InventoryReceipt.create({
-                receiptNo,
-                amount: transaction.totalRentAmount, // Receipt is for the full amount
-                transactionId: transaction._id,
+            if (transaction.paidAmount >= transaction.totalRentAmount && !transaction.receiptId) {
+                const count = await InventoryReceipt.countDocuments().session(session);
+                receiptNo = `INV-RC-${new Date().getFullYear()}-${count + 1}`;
+
+                receipt = await InventoryReceipt.create([{
+                    receiptNo,
+                    amount: transaction.totalRentAmount,
+                    transactionId: transaction._id,
+                    account: account._id,
+                    payerName: transaction.customerName,
+                    payerPhone: transaction.customerPhone,
+                    description: `Full Rent payment for ${combinedItemNames}`,
+                    createdBy: req.user ? req.user._id : undefined
+                }], { session });
+
+                transaction.receiptId = receipt[0]._id;
+            }
+
+            await transaction.save({ session });
+
+            await AccountTransaction.create([{
                 account: account._id,
-                payerName: transaction.customerName,
-                payerPhone: transaction.customerPhone,
-                description: `Full Rent payment for ${combinedItemNames}`,
-                createdBy: req.user ? req.user._id : undefined
-            });
+                inventoryReceipt: receipt ? receipt[0]._id : undefined,
+                type: 'INCOME',
+                amount: paymentAmount,
+                balanceAfter: account.balance,
+                description: receiptNo ? `Inventory Rent: ${receiptNo} from ${transaction.customerName}` : `Partial Rent payment for ${combinedItemNames} from ${transaction.customerName}`
+            }], { session });
 
-            transaction.receiptId = receipt._id;
+            await session.commitTransaction();
+        } catch (txnError) {
+            await session.abortTransaction();
+            throw txnError;
+        } finally {
+            session.endSession();
         }
-
-        await transaction.save();
-
-        // Log Transaction to Account
-        await AccountTransaction.create({
-            account: account._id,
-            inventoryReceipt: receipt ? receipt._id : undefined,
-            type: 'INCOME',
-            amount: paymentAmount,
-            balanceAfter: account.balance,
-            description: receiptNo ? `Inventory Rent: ${receiptNo} from ${transaction.customerName}` : `Partial Rent payment for ${combinedItemNames} from ${transaction.customerName}`
-        });
 
         // Send WhatsApp Notification if phone is available
         if (transaction.customerPhone && process.env.WHATSAPP_TOKEN && process.env.WHATSAPP_API_URL) {
