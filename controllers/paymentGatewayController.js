@@ -295,6 +295,7 @@ export const handleWebhook = async (req, res) => {
                         console.log(`Razorpay Collection Receipt: ${receiptNo} for ₹${payAmount}`);
 
                         if (payerPhone) {
+                            console.log(payerPhone)
                             const API_URL = process.env.WHATSAPP_API_URL;
                             const TOKEN = process.env.WHATSAPP_TOKEN;
                             if (API_URL && TOKEN) {
@@ -334,6 +335,7 @@ export const handleWebhook = async (req, res) => {
                                     headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
                                     timeout: 10000
                                 }).catch(error => {
+                                    console.log(error)
                                     console.error('Failed to send due_confirm WhatsApp:', error.response?.data || error.message);
                                 });
                             }
