@@ -215,21 +215,22 @@ export const handleWebhook = async (req, res) => {
                         const entityType = due.entityType;
                         let payerName = notes.name || 'Online Payment';
                         let customId = '';
+                        let payerPhone = '';
                         if (entityType === 'House') {
-                            const h = await House.findById(due.entityId);
+                            const h = await House.findById(due.entityId).populate('head', 'mobile whatsapp');
                             if (h) {
                                 payerName = `${h.name} (${h.customId})`;
                                 customId = h.customId;
+                                payerPhone = h.head?.whatsapp || h.head?.mobile || '';
                             }
                         } else {
                             const m = await Member.findById(due.entityId);
                             if (m) {
                                 payerName = `${m.name} (${m.customId})`;
                                 customId = m.customId;
+                                payerPhone = m.whatsapp || m.mobile || '';
                             }
                         }
-
-                        const payerPhone = payment.contact || notes.contact || '';
 
                         const account = await Account.findOne({ isPrimary: true });
                         if (!account) {
