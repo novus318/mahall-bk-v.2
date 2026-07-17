@@ -937,7 +937,7 @@ const getPublicEntityDetails = async (req, res) => {
         if (isHouse) {
             const house = await House.findById(id)
                 .populate('family', 'name customId')
-                .populate('head', 'name customId phone');
+                .populate('head', 'name customId mobile whatsapp');
             if (!house) return res.status(404).json({ status: false, message: 'House not found' });
             res.json({ status: true, data: house });
         } else {
