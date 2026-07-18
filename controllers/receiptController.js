@@ -200,31 +200,19 @@ export const createReceipt = async (req, res) => {
         });
 
         // 5. Update Account Balance (ADD Money)
-        const session = await mongoose.startSession();
-        try {
-            session.startTransaction();
+        account.balance += totalAmount;
+        await account.save();
 
-            account.balance += totalAmount;
-            await account.save({ session });
-
-            await AccountTransaction.create([{
-                account: account._id,
-                relatedAccount: null,
-                receipt: receipt._id,
-                type: 'INCOME',
-                amount: totalAmount,
-                balanceAfter: account.balance,
-                date: receipt.date,
-                description: `Receipt ${receiptNo} from ${payer}`
-            }], { session });
-
-            await session.commitTransaction();
-        } catch (txnError) {
-            await session.abortTransaction();
-            throw txnError;
-        } finally {
-            session.endSession();
-        }
+        await AccountTransaction.create({
+            account: account._id,
+            relatedAccount: null,
+            receipt: receipt._id,
+            type: 'INCOME',
+            amount: totalAmount,
+            balanceAfter: account.balance,
+            date: receipt.date,
+            description: `Receipt ${receiptNo} from ${payer}`
+        });
 
         res.status(201).json({ status: true, data: receipt, message: 'Receipt created successfully' });
 
