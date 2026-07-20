@@ -608,13 +608,13 @@ export const getIncomePrintData = async (req, res) => {
         if (items.length > 0) {
             lines.push({ type: 0, content: "Items:", bold: 1, align: 0, format: 0 });
             items.forEach(item => {
-                lines.push({ type: 0, content: `${item.description}: Rs. ${Number(item.amount).toFixed(2)}`, bold: 0, align: 2, format: 0 });
+                lines.push({ type: 0, content: `${item.description} Rs.${Number(item.amount).toFixed(2)}`, bold: 0, align: 2, format: 0 });
             });
             lines.push({ type: 0, content: "--------------------------------", bold: 0, align: 0, format: 0 });
         }
 
         lines.push(
-            { type: 0, content: `Amount: Rs. ${Number(receipt.amount).toFixed(2)}`, bold: 0, align: 2, format: 0 },
+            { type: 0, content: `Amount: Rs.${Number(receipt.amount).toFixed(2)}`, bold: 0, align: 2, format: 0 },
             { type: 0, content: "--------------------------------", bold: 0, align: 0, format: 0 },
             { type: 0, content: `TOTAL: Rs. ${Number(receipt.amount).toFixed(2)}`, bold: 1, align: 2, format: 1 },
             { type: 0, content: "--------------------------------", bold: 0, align: 0, format: 0 },
