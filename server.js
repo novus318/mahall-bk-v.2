@@ -41,6 +41,7 @@ import dashboardRoutes from './routes/dashboardRoutes.js';
 import paymentGatewayRoutes from './routes/paymentGatewayRoutes.js';
 import payableRoutes from './routes/payableRoutes.js';
 import certificateRoutes from './routes/certificateRoutes.js';
+import deathRegisterRoutes from './routes/deathRegisterRoutes.js';
 import printRoutes from './routes/printRoutes.js';
 
 app.use('/api/auth', authRoutes);
@@ -51,6 +52,7 @@ app.use('/api/print', printRoutes);
 app.use('/api/collections', collectionRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/receipts', receiptRoutes);
+app.use('/api/death-registers', deathRegisterRoutes);
 app.use('/api', mahallRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/settings', settingsRoutes);
