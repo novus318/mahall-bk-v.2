@@ -41,6 +41,7 @@ import dashboardRoutes from './routes/dashboardRoutes.js';
 import paymentGatewayRoutes from './routes/paymentGatewayRoutes.js';
 import payableRoutes from './routes/payableRoutes.js';
 import certificateRoutes from './routes/certificateRoutes.js';
+import nikahRegisterRoutes from './routes/nikahRegisterRoutes.js';
 import deathRegisterRoutes from './routes/deathRegisterRoutes.js';
 import printRoutes from './routes/printRoutes.js';
 
@@ -63,6 +64,7 @@ app.use('/api/buildings', buildingRoutes);
 app.use('/api/contracts', contractRoutes);
 app.use('/api/payables', payableRoutes);
 app.use('/api/certificates', certificateRoutes);
+app.use('/api/nikah-registers', nikahRegisterRoutes);
 
 const PORT = process.env.PORT || 5000;
 
