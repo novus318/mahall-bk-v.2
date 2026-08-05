@@ -212,7 +212,11 @@ const buildTemplateComponents = (messageTemplate, recipient) => {
         }));
     } else {
         // positional order -> matching {{1}}, {{2}}, ...
-        parameters = (Array.isArray(values) ? values : []).map(v => ({
+        // Values may arrive as an array (["a","b"]) or as an object keyed by index ({"1":"a","2":"b"})
+        const ordered = Array.isArray(values)
+            ? values
+            : Object.keys(values || {}).sort((a, b) => Number(a) - Number(b)).map(k => values[k]);
+        parameters = ordered.map(v => ({
             type: 'text',
             text: substitutePlaceholders(v, ctx),
         }));
