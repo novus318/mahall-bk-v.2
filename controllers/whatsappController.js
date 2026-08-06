@@ -420,7 +420,7 @@ export const getContacts = async (req, res) => {
 
         const contacts = await WhatsAppContact.find(query)
             .sort({ lastMessageAt: -1 }) // Most recent first
-            .limit(50); // Pagination later if needed
+            .limit(500); // Pagination later if needed
 
         res.status(200).json({ success: true, data: contacts });
     } catch (error) {
