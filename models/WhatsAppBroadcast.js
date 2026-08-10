@@ -50,7 +50,14 @@ const whatsappBroadcastSchema = new mongoose.Schema({
         parameterFormat: { type: String, enum: ['positional', 'named'], default: 'positional' },
         // Parameter values. positional -> array of strings (in placeholder order);
         // named -> object keyed by param name. Values may contain {{var}} placeholders.
-        values: { type: mongoose.Schema.Types.Mixed, default: [] }
+        values: { type: mongoose.Schema.Types.Mixed, default: [] },
+        // Header override for templates with a media header. format matches the cloud
+        // template header (IMAGE | VIDEO | DOCUMENT | TEXT); media is the link/handle
+        // sent at send time (required for media headers).
+        header: {
+            format: String,
+            media: String
+        }
     },
     // Message captured at run time; variables per-recipient are substituted on send
     // Required only when not using an approved template

@@ -126,11 +126,14 @@ export const metaStatus = async (req, res) => {
 // POST /api/whatsapp/bulk/preview
 export const preview = async (req, res) => {
     try {
-        const { audience, customContacts, message, templateName, templateLanguage, templateParameterFormat, templateValues } = req.body;
+        const { audience, customContacts, message, templateName, templateLanguage, templateParameterFormat, templateValues, templateHeaderFormat, templateHeaderMedia } = req.body;
         const { total, recipients } = await previewBroadcast(audience, customContacts);
         const sample = recipients[0];
         const rendered = templateName
-            ? { templateName, language: templateLanguage, parameterFormat: templateParameterFormat || 'positional', values: templateValues || [] }
+            ? {
+                templateName, language: templateLanguage, parameterFormat: templateParameterFormat || 'positional', values: templateValues || [],
+                header: (templateHeaderFormat && templateHeaderMedia) ? { format: templateHeaderFormat, media: templateHeaderMedia } : null,
+            }
             : resolveBody(message, sample);
 
         res.status(200).json({ success: true, total, recipients, rendered });
@@ -216,7 +219,7 @@ export const exportPhoneAudit = async (req, res) => {
 };
 export const createBroadcast = async (req, res) => {
     try {
-        const { name, message, audience, customContacts, templateName, templateLanguage, templateParameterFormat, templateValues } = req.body;
+        const { name, message, audience, customContacts, templateName, templateLanguage, templateParameterFormat, templateValues, templateHeaderFormat, templateHeaderMedia } = req.body;
         if (!name) return res.status(400).json({ success: false, message: 'Name is required' });
         if (!audience) return res.status(400).json({ success: false, message: 'Audience is required' });
         if (!message && !templateName) return res.status(400).json({ success: false, message: 'Message or template required' });
@@ -234,6 +237,9 @@ export const createBroadcast = async (req, res) => {
                     language: templateLanguage || 'en',
                     parameterFormat: templateParameterFormat || 'positional',
                     values: templateValues || (templateParameterFormat === 'named' ? {} : []),
+                    header: (templateHeaderFormat && templateHeaderMedia)
+                        ? { format: templateHeaderFormat, media: templateHeaderMedia }
+                        : undefined,
                 }
                 : undefined,
             status: 'DRAFT',

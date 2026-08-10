@@ -24,11 +24,11 @@ const resolveEntitiesToAudience = async (audienceType) => {
     const out = [];
 
     if (audienceType === 'MEMBER' || audienceType === 'ALL') {
-        const members = await Member.find();
+        const members = await Member.find().populate('house', 'customId').lean();
         for (const m of members) {
             const phone = normalizePhone(m.whatsapp || m.mobile);
             if (!phone) continue;
-            out.push({ phoneNumber: phone, name: m.name, entityType: 'MEMBER', linkedEntityId: m._id, linkedEntityModel: 'Member' });
+            out.push({ phoneNumber: phone, name: m.name, entityType: 'MEMBER', linkedEntityId: m._id, linkedEntityModel: 'Member' , houseId: m.house?.customId });
         }
     }
 
@@ -52,7 +52,10 @@ const resolveEntitiesToAudience = async (audienceType) => {
 
     const seen = new Set();
     return out.filter(r => {
-        if (seen.has(r.phoneNumber)) return false;
+        if (seen.has(r.phoneNumber)){
+            console.log(`Duplicate number: ${r.phoneNumber} for ${r.name} (${r.entityType} - ${r.houseId || ''})`);
+        return false;    
+        }
         seen.add(r.phoneNumber);
         return true;
     });
@@ -199,6 +202,27 @@ export const executeBroadcast = async (broadcastId) => {
 // Build template components from stored values, personalising any {{var}} placeholders.
 const buildTemplateComponents = (messageTemplate, recipient) => {
     const ctx = { name: recipient.name, phone: recipient.phoneNumber, type: recipient.entityType };
+    const components = [];
+
+    // Media header (IMAGE / VIDEO / DOCUMENT) requires a parameter carrying the
+    // link/handle at send time, otherwise Meta rejects with #132012.
+    const headerFormat = String(messageTemplate.header?.format || '').toUpperCase();
+    const mediaTypes = ['IMAGE', 'VIDEO', 'DOCUMENT'];
+    if (mediaTypes.includes(headerFormat)) {
+        const media = messageTemplate.header?.media;
+        if (media) {
+            const link = substitutePlaceholders(String(media).trim(), ctx);
+            if (link) components.push({
+                type: 'header',
+                parameters: [{
+                    type: headerFormat.toLowerCase(),
+                    [headerFormat.toLowerCase()]: { link },
+                }],
+            });
+        }
+    }
+
+    // Body parameters
     const values = messageTemplate.values || [];
     const format = messageTemplate.parameterFormat || 'positional';
 
@@ -222,5 +246,7 @@ const buildTemplateComponents = (messageTemplate, recipient) => {
         }));
     }
 
-    return parameters.length ? [{ type: 'body', parameters }] : undefined;
+    if (parameters.length) components.push({ type: 'body', parameters });
+
+    return components.length ? components : undefined;
 };

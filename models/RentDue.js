@@ -26,7 +26,7 @@ const rentDueSchema = new Schema({
     },
     status: {
         type: String,
-        enum: ['PENDING', 'PARTIAL', 'PAID'],
+        enum: ['PENDING', 'PARTIAL', 'PAID','REJECTED'],
         default: 'PENDING'
     },
     paymentDate: { // Keep for backward compatibility/last payment
