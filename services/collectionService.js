@@ -69,8 +69,7 @@ export const generateBulkDuesInternal = async ({ entityType, period, frequency =
         if (frequency === 'Yearly') {
             targetPeriod = d.getFullYear().toString();
         } else {
-            // Monthly: Default to Last Month
-            d.setMonth(d.getMonth() - 1);
+            // Monthly: Default to Current Month
             const month = (d.getMonth() + 1).toString().padStart(2, '0');
             const year = d.getFullYear();
             targetPeriod = `${month}-${year}`;
