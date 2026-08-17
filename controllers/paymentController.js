@@ -71,7 +71,7 @@ export const deletePaymentCategory = async (req, res) => {
 
 export const getPayments = async (req, res) => {
     try {
-        const { page = 1, limit = 20, search, status, category } = req.query;
+        const { page = 1, limit = 20, search, status, category, from, to } = req.query;
         const query = {};
 
         if (search) {
@@ -89,6 +89,17 @@ export const getPayments = async (req, res) => {
         // Category-wise filter from backend
         if (category && mongoose.isValidObjectId(category)) {
             query.category = category;
+        }
+
+        // Date-wise filter from backend (inclusive of the "to" day)
+        if (from || to) {
+            query.date = {};
+            if (from) query.date.$gte = new Date(from);
+            if (to) {
+                const end = new Date(to);
+                end.setDate(end.getDate() + 1);
+                query.date.$lt = end;
+            }
         }
 
         const count = await Payment.countDocuments(query);
@@ -112,6 +123,75 @@ export const getPayments = async (req, res) => {
         res.status(500).json({ status: false, message: error.message });
     }
 }
+
+// @desc    Export filtered payments as Excel (.xlsx)
+// @route   POST /api/payments/export
+export const exportPayments = async (req, res) => {
+    try {
+        const { search, category, status, from, to } = req.body || {};
+        const query = {};
+
+        if (search) {
+            query.$or = [
+                { receiptNo: { $regex: search, $options: 'i' } },
+                { payee: { $regex: search, $options: 'i' } }
+            ];
+        }
+        if (status) {
+            query.status = status;
+        }
+        if (category && mongoose.isValidObjectId(category)) {
+            query.category = category;
+        }
+        if (from || to) {
+            query.date = {};
+            if (from) query.date.$gte = new Date(from);
+            if (to) {
+                const end = new Date(to);
+                end.setDate(end.getDate() + 1);
+                query.date.$lt = end;
+            }
+        }
+
+        const payments = await Payment.find(query)
+            .populate('category', 'name')
+            .populate('account', 'name')
+            .sort({ date: -1, createdAt: -1 });
+
+        const ExcelJS = (await import('exceljs')).default;
+        const workbook = new ExcelJS.Workbook();
+        const sheet = workbook.addWorksheet('Payments');
+        sheet.columns = [
+            { header: 'Receipt No', key: 'receiptNo', width: 14 },
+            { header: 'Date', key: 'date', width: 14 },
+            { header: 'Payee', key: 'payee', width: 26 },
+            { header: 'Contact', key: 'payeeContact', width: 16 },
+            { header: 'Category', key: 'category', width: 18 },
+            { header: 'Account', key: 'account', width: 18 },
+            { header: 'Amount', key: 'amount', width: 14 },
+            { header: 'Status', key: 'status', width: 12 }
+        ];
+        payments.forEach(p => sheet.addRow({
+            receiptNo: p.receiptNo,
+            date: new Date(p.date).toLocaleDateString('en-GB'),
+            payee: typeof p.payee === 'string' ? p.payee : (p.payee?.name || ''),
+            payeeContact: p.payeeContact || '',
+            category: p.category?.name || '',
+            account: p.account?.name || '',
+            amount: p.amount,
+            status: p.status
+        }));
+        sheet.getRow(1).font = { bold: true };
+
+        const safe = `payments-${from || 'all'}-${to || 'all'}`.replace(/[^A-Za-z0-9 _-]/g, '') || 'payments';
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${safe}.xlsx"`);
+        await workbook.xlsx.write(res);
+        res.end();
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
 
 
 export const getPaymentById = async (req, res) => {
