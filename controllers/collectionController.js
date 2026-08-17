@@ -73,8 +73,8 @@ const getDues = async (req, res) => {
         const dues = await CollectionDue.find(query)
             .populate({
                 path: 'entityId',
-                select: 'name customId houseId',
-                populate: { path: 'houseId', select: 'customId', strictPopulate: false }
+                select: 'name customId house',
+                populate: { path: 'house', select: 'name customId', strictPopulate: false }
             })
             .populate({
                 path: 'transactions.receiptId',
@@ -809,6 +809,14 @@ const getArrearsSummary = async (req, res) => {
                 }
             },
             {
+                $lookup: {
+                    from: 'houses',
+                    localField: 'memberInfo.house',
+                    foreignField: '_id',
+                    as: 'memberHouseInfo'
+                }
+            },
+            {
                 $project: {
                     entityId: '$_id.entityId',
                     entityType: '$_id.entityType',
@@ -819,7 +827,12 @@ const getArrearsSummary = async (req, res) => {
                         $cond: [
                             { $eq: ['$_id.entityType', 'House'] },
                             { $arrayElemAt: ['$houseInfo', 0] },
-                            { $arrayElemAt: ['$memberInfo', 0] }
+                            {
+                                $mergeObjects: [
+                                    { $arrayElemAt: ['$memberInfo', 0] },
+                                    { house: { $arrayElemAt: ['$memberHouseInfo', 0] } }
+                                ]
+                            }
                         ]
                     }
                 }

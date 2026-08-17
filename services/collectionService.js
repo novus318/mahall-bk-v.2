@@ -1,61 +1,7 @@
-import axios from 'axios';
 import House from '../models/House.js';
 import Member from '../models/Member.js';
 import CollectionDue from '../models/CollectionDue.js';
-
-/**
- * Helper to send WhatsApp notification for a generated due.
- */
-const sendWhatsAppNotification = async (recipient, data) => {
-    try {
-        const { WHATSAPP_TOKEN, WHATSAPP_API_URL } = process.env;
-        if (!WHATSAPP_TOKEN || !WHATSAPP_API_URL) return;
-
-        // Clean recipient number: ensure it has country code and no plus sign
-        let phone = recipient.replace(/\D/g, '');
-        if (phone.length === 10) phone = '91' + phone; // Default to India if no country code
-
-        const payload = {
-            messaging_product: 'whatsapp',
-            to: phone,
-            type: 'template',
-            template: {
-                name: 'due_collection',
-                language: { code: 'ml' },
-                components: [
-                    {
-                        type: 'body',
-                        parameters: [
-                            { type: 'text', text: data.name },           // {{1}}
-                            { type: 'text', text: data.frequencyLabel }, // {{2}}
-                            { type: 'text', text: data.customId },       // {{3}}
-                            { type: 'text', text: data.period },         // {{4}}
-                            { type: 'text', text: data.amount.toString() } // {{5}}
-                        ]
-                    },
-                    {
-                        type: 'button',
-                        sub_type: 'url',
-                        index: '0',
-                        parameters: [
-                            { type: 'text', text: data.dueId } // Appends to the base URL configured in the template
-                        ]
-                    }
-                ]
-            }
-        };
-
-        await axios.post(WHATSAPP_API_URL, payload, {
-            headers: {
-                'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
-                'Content-Type': 'application/json'
-            },
-            timeout: 10000 // 10s timeout
-        });
-    } catch (error) {
-        console.error(`Failed to send WhatsApp to ${recipient}:`, error.response?.data || error.message);
-    }
-};
+import { normalizePhone, sendDueBatch } from './whatsappReminderService.js';
 
 /**
  * Common function to generate dues in bulk for Houses and/or Members.
@@ -79,6 +25,7 @@ export const generateBulkDuesInternal = async ({ entityType, period, frequency =
     let generatedCount = 0;
     let skippedCount = 0;
     const typesToProcess = [];
+    const reminderRecipients = [];
 
     if (!entityType || entityType === 'All') {
         typesToProcess.push('House', 'Member');
@@ -189,32 +136,49 @@ export const generateBulkDuesInternal = async ({ entityType, period, frequency =
         // Bulk Insert
         if (duesToCreate.length > 0) {
             const createdDues = await CollectionDue.insertMany(duesToCreate);
-            
-            // Send WhatsApp Notifications
-            const frequencyLabel = frequency === 'Monthly' ? 'പ്രതിമാസ' : 'വാർഷിക';
-            
-            // We process sequentially to avoid overwhelming the API, but without await inside loop if speed is preferred.
-            // However, to ensure we don't hit rate limits too hard and can log failures, we'll do it one by one.
+
+            // Collect recipients for the batch WhatsApp reminder run (sent below).
+            // Newly created dues are always PENDING; skip anything that is not unpaid.
             for (let i = 0; i < createdDues.length; i++) {
                 const due = createdDues[i];
                 const entity = entitiesToCreate[i];
 
-                if (entity.contactNumber) {
-                    // We don't await the notification to keep the API response faster, 
-                    // but we start the promise.
-                    sendWhatsAppNotification(entity.contactNumber, {
-                        name: entity.contactName || 'Recipient',
-                        frequencyLabel,
-                        customId: entity.customId,
-                        period: targetPeriod,
-                        amount: entity.subscription.amount,
-                        dueId: (type === 'House' ? 'hou/' : 'mem/') + entity._id.toString()
-                    });
-                }
+                if (!['PENDING', 'PARTIAL'].includes(due.status)) continue;
+                if (due.amount - (due.paidAmount || 0) <= 0) continue;
+                if (!entity.contactNumber) continue;
+
+                const phone = normalizePhone(entity.contactNumber);
+                if (!phone) continue;
+                reminderRecipients.push({
+                    phoneNumber: phone,
+                    name: entity.contactName || 'Recipient',
+                    entityType: type,
+                    entityId: entity._id,
+                    linkedEntityModel: type,
+                    dueId: due._id,
+                    period: targetPeriod,
+                    amount: entity.subscription.amount,
+                    frequency,
+                    customId: entity.customId
+                });
             }
-            
+
             generatedCount += createdDues.length;
         }
+    }
+
+    // Send WhatsApp notifications with the same batch processing as executeBroadcast,
+    // recording each recipient's result (SENT / FAILED + error + sentAt) for tracking.
+    if (reminderRecipients.length > 0) {
+        await sendDueBatch(reminderRecipients, {
+            name: `Bulk dues - ${targetPeriod}`,
+            entityType: entityType || 'All',
+            period: targetPeriod,
+            frequency,
+            createdBy: null
+        }).catch(err => {
+            console.error('Bulk due WhatsApp batch failed:', err.message);
+        });
     }
 
     return {

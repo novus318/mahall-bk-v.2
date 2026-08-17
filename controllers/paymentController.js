@@ -71,7 +71,7 @@ export const deletePaymentCategory = async (req, res) => {
 
 export const getPayments = async (req, res) => {
     try {
-        const { page = 1, limit = 20, search, status } = req.query;
+        const { page = 1, limit = 20, search, status, category } = req.query;
         const query = {};
 
         if (search) {
@@ -84,6 +84,11 @@ export const getPayments = async (req, res) => {
         // Filter by status if provided
         if (status) {
             query.status = status;
+        }
+
+        // Category-wise filter from backend
+        if (category && mongoose.isValidObjectId(category)) {
+            query.category = category;
         }
 
         const count = await Payment.countDocuments(query);

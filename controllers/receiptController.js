@@ -72,7 +72,7 @@ export const deleteReceiptCategory = async (req, res) => {
 
 export const getReceipts = async (req, res) => {
     try {
-        const { page = 1, limit = 20, search } = req.query;
+        const { page = 1, limit = 20, search, category } = req.query;
         const query = {};
 
         if (search) {
@@ -80,6 +80,11 @@ export const getReceipts = async (req, res) => {
                 { receiptNo: { $regex: search, $options: 'i' } },
                 { payer: { $regex: search, $options: 'i' } }
             ];
+        }
+
+        // Category-wise filter from backend
+        if (category && mongoose.isValidObjectId(category)) {
+            query.category = category;
         }
 
         const count = await Receipt.countDocuments(query);

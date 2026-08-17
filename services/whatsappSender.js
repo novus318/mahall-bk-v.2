@@ -72,3 +72,47 @@ export const sendTemplateMessage = async ({ to, name, language = 'en', component
         throw error;
     }
 };
+
+// Send the "due_collection" template used for collections dues reminders.
+// Returns the message id on success and throws on failure so callers can track it.
+export const sendDueCollectionTemplate = async ({ to, name, frequencyLabel, customId, period, amount, dueId }) => {
+    requireConfig();
+    const payload = {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to,
+        type: 'template',
+        template: {
+            name: 'due_collection',
+            language: { code: 'ml' },
+            components: [
+                {
+                    type: 'body',
+                    parameters: [
+                        { type: 'text', text: name },                 // {{1}}
+                        { type: 'text', text: frequencyLabel },       // {{2}}
+                        { type: 'text', text: customId || '' },       // {{3}}
+                        { type: 'text', text: period },               // {{4}}
+                        { type: 'text', text: String(amount) }        // {{5}}
+                    ]
+                },
+                {
+                    type: 'button',
+                    sub_type: 'url',
+                    index: '0',
+                    parameters: [
+                        { type: 'text', text: dueId } // Appends to the base URL configured in the template
+                    ]
+                }
+            ]
+        }
+    };
+    try {
+        const { data } = await axios.post(MESSAGES_URL, payload, { headers });
+        if (data?.messages?.[0]?.id) return data.messages[0].id;
+        return null;
+    } catch (error) {
+        console.error('sendDueCollectionTemplate failed:', extractErrorMessage(error));
+        throw error;
+    }
+};
