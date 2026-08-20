@@ -72,9 +72,11 @@ app.use('/api/payables', payableRoutes);
 const PORT = process.env.PORT || 5000;
 
 import startScheduler from './jobs/collectionScheduler.js';
+import startBackupScheduler from './jobs/dbBackupScheduler.js';
 
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     startScheduler();
+    startBackupScheduler();
     // Restart trigger for date fix and deep linking
 });

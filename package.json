@@ -22,14 +22,12 @@
     "mongoose": "^9.0.1",
     "multer": "^2.0.2",
     "node-cron": "^4.2.1",
+    "nodemailer": "^9.0.5",
     "pdfkit": "^0.17.2",
     "razorpay": "^2.9.6"
   },
   "devDependencies": {
     "nodemon": "^3.1.9"
-  },
-  "overrides": {
-    "minimatch": "^10.2.1"
   },
   "engines": {
     "node": "20.x"
