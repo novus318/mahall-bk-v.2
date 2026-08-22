@@ -61,7 +61,7 @@ const updateSubscription = async (req, res) => {
 // @access  Public/Private
 const getDues = async (req, res) => {
     try {
-        const { entityId, entityType, status, period, frequency } = req.query;
+        const { entityId, entityType, status, period, frequency, startDate, endDate, page = 1, limit = 20, search } = req.query;
         const query = {};
 
         if (entityId) query.entityId = entityId;
@@ -70,20 +70,62 @@ const getDues = async (req, res) => {
         if (period) query.period = period;
         if (frequency) query.frequency = frequency;
 
-        const dues = await CollectionDue.find(query)
-            .populate({
-                path: 'entityId',
-                select: 'name customId house',
-                populate: { path: 'house', select: 'name customId', strictPopulate: false }
-            })
-            .populate({
-                path: 'transactions.receiptId',
-                select: 'account receiptNo',
-                populate: { path: 'account', select: 'name _id type' }
-            })
-            .sort({ createdAt: -1 });
+        // Date range filter on createdAt
+        if (startDate || endDate) {
+            query.createdAt = {};
+            if (startDate) query.createdAt.$gte = new Date(startDate);
+            if (endDate) {
+                const end = new Date(endDate);
+                end.setHours(23, 59, 59, 999);
+                query.createdAt.$lte = end;
+            }
+        }
 
-        res.json({ status: true, data: dues });
+        // Search by entity name or customId (requires aggregation or post-filter)
+        // We'll handle search via post-filter since entityId is populated later
+
+        const pageNum = Math.max(1, Number(page));
+        const limitNum = Math.min(100, Math.max(1, Number(limit)));
+        const skip = (pageNum - 1) * limitNum;
+
+        const [dues, total] = await Promise.all([
+            CollectionDue.find(query)
+                .populate({
+                    path: 'entityId',
+                    select: 'name customId house',
+                    populate: { path: 'house', select: 'name customId', strictPopulate: false }
+                })
+                .populate({
+                    path: 'transactions.receiptId',
+                    select: 'account receiptNo',
+                    populate: { path: 'account', select: 'name _id type' }
+                })
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limitNum),
+            CollectionDue.countDocuments(query)
+        ]);
+
+        // Post-filter for search (after populate)
+        let filteredDues = dues;
+        if (search) {
+            const q = search.toLowerCase();
+            filteredDues = dues.filter(d =>
+                d.entityId?.name?.toLowerCase().includes(q) ||
+                d.entityId?.customId?.toLowerCase().includes(q)
+            );
+        }
+
+        res.json({
+            status: true,
+            data: filteredDues,
+            pagination: {
+                page: pageNum,
+                limit: limitNum,
+                total,
+                totalPages: Math.ceil(total / limitNum)
+            }
+        });
     } catch (error) {
         res.status(500).json({ status: false, message: error.message });
     }

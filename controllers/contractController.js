@@ -567,17 +567,56 @@ const generateBulkRent = async (req, res) => {
 
 const getRentDues = async (req, res) => {
     try {
-        const { contractId, status, period } = req.query;
+        const { contractId, status, period, startDate, endDate, page = 1, limit = 20, search } = req.query;
         const query = {};
         if (contractId) query.contract = contractId;
         if (status) query.status = status;
         if (period) query.monthYear = period;
 
-        const dues = await RentDue.find(query)
-            .populate('contract', 'tenant.name tenant.phone rentAmount rooms')
-            .sort({ monthYear: -1 });
+        // Date range filter on createdAt
+        if (startDate || endDate) {
+            query.createdAt = {};
+            if (startDate) query.createdAt.$gte = new Date(startDate);
+            if (endDate) {
+                const end = new Date(endDate);
+                end.setHours(23, 59, 59, 999);
+                query.createdAt.$lte = end;
+            }
+        }
 
-        res.json({ status: true, data: dues });
+        const pageNum = Math.max(1, Number(page));
+        const limitNum = Math.min(100, Math.max(1, Number(limit)));
+        const skip = (pageNum - 1) * limitNum;
+
+        const [dues, total] = await Promise.all([
+            RentDue.find(query)
+                .populate('contract', 'tenant.name tenant.phone rentAmount rooms')
+                .sort({ monthYear: -1 })
+                .skip(skip)
+                .limit(limitNum),
+            RentDue.countDocuments(query)
+        ]);
+
+        // Post-filter for search (after populate)
+        let filteredDues = dues;
+        if (search) {
+            const q = search.toLowerCase();
+            filteredDues = dues.filter(d =>
+                d.contract?.tenant?.name?.toLowerCase().includes(q) ||
+                d.contract?.tenant?.phone?.toLowerCase().includes(q)
+            );
+        }
+
+        res.json({
+            status: true,
+            data: filteredDues,
+            pagination: {
+                page: pageNum,
+                limit: limitNum,
+                total,
+                totalPages: Math.ceil(total / limitNum)
+            }
+        });
     } catch (error) {
         res.status(500).json({ status: false, message: error.message });
     }

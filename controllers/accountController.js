@@ -19,6 +19,20 @@ export const createAccount = async (req, res) => {
     try {
         const { name, type, accountNumber, holderName, bankName, openingBalance, isPrimary } = req.body;
 
+        // Check for duplicate account name + type
+        const existingByName = await Account.findOne({ name: name.trim(), type, status: 'ACTIVE' });
+        if (existingByName) {
+            return res.status(400).json({ status: false, message: `An account with name "${name}" of type ${type} already exists` });
+        }
+
+        // Check for duplicate bank account number
+        if (type === 'BANK' && accountNumber) {
+            const existingByNumber = await Account.findOne({ accountNumber: accountNumber.trim(), status: 'ACTIVE' });
+            if (existingByNumber) {
+                return res.status(400).json({ status: false, message: `An account with number "${accountNumber}" already exists (${existingByNumber.name})` });
+            }
+        }
+
         if (isPrimary) {
             await Account.updateMany({}, { isPrimary: false });
         }
@@ -27,11 +41,11 @@ export const createAccount = async (req, res) => {
         const shouldBePrimary = isPrimary || count === 0;
 
         const account = await Account.create({
-            name,
+            name: name.trim(),
             type,
-            accountNumber,
-            holderName,
-            bankName,
+            accountNumber: accountNumber?.trim(),
+            holderName: holderName.trim(),
+            bankName: bankName?.trim(),
             openingBalance: Number(openingBalance) || 0,
             balance: Number(openingBalance) || 0,
             isPrimary: shouldBePrimary
@@ -80,16 +94,41 @@ export const updateAccount = async (req, res) => {
 
         const { name, holderName, bankName, accountNumber, isPrimary } = req.body;
 
+        // Check for duplicate account name + type (excluding self)
+        if (name && name.trim() !== account.name) {
+            const existingByName = await Account.findOne({
+                name: name.trim(),
+                type: account.type,
+                status: 'ACTIVE',
+                _id: { $ne: account._id }
+            });
+            if (existingByName) {
+                return res.status(400).json({ status: false, message: `An account with name "${name}" of type ${account.type} already exists` });
+            }
+        }
+
+        // Check for duplicate bank account number (excluding self)
+        if (account.type === 'BANK' && accountNumber && accountNumber.trim() !== account.accountNumber) {
+            const existingByNumber = await Account.findOne({
+                accountNumber: accountNumber.trim(),
+                status: 'ACTIVE',
+                _id: { $ne: account._id }
+            });
+            if (existingByNumber) {
+                return res.status(400).json({ status: false, message: `An account with number "${accountNumber}" already exists (${existingByNumber.name})` });
+            }
+        }
+
         if (isPrimary && !account.isPrimary) {
             await Account.updateMany({}, { isPrimary: false });
             account.isPrimary = true;
         }
 
-        account.name = name || account.name;
-        account.holderName = holderName || account.holderName;
+        account.name = name?.trim() || account.name;
+        account.holderName = holderName?.trim() || account.holderName;
         if (account.type === 'BANK') {
-            account.bankName = bankName || account.bankName;
-            account.accountNumber = accountNumber || account.accountNumber;
+            account.bankName = bankName?.trim() || account.bankName;
+            account.accountNumber = accountNumber?.trim() || account.accountNumber;
         }
 
         const updatedAccount = await account.save();
