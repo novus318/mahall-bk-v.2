@@ -376,3 +376,136 @@ export const exportTransactions = async (req, res) => {
         res.status(500).json({ status: false, message: error.message });
     }
 };
+
+// @desc    Income & Expense Report (date-wise with Excel export)
+// @route   GET /api/accounts/reports/income-expense
+// @access  Private
+export const getIncomeExpenseReport = async (req, res) => {
+    try {
+        const { startDate, endDate, format: responseFormat } = req.query;
+
+        const query = { type: { $in: ['INCOME', 'EXPENSE'] } };
+
+        if (startDate || endDate) {
+            query.date = {};
+            if (startDate) query.date.$gte = new Date(startDate);
+            if (endDate) {
+                const end = new Date(endDate);
+                end.setHours(23, 59, 59, 999);
+                query.date.$lte = end;
+            }
+        }
+
+        const transactions = await AccountTransaction.find(query)
+            .populate('account', 'name type')
+            .sort({ date: 1 });
+
+        // Group by date
+        const groupedByDate = {};
+        let totalIncome = 0;
+        let totalExpense = 0;
+
+        for (const tx of transactions) {
+            const dateKey = new Date(tx.date).toISOString().split('T')[0];
+            if (!groupedByDate[dateKey]) {
+                groupedByDate[dateKey] = { date: dateKey, income: 0, expense: 0, transactions: [] };
+            }
+            if (tx.type === 'INCOME') {
+                groupedByDate[dateKey].income += tx.amount;
+                totalIncome += tx.amount;
+            } else {
+                groupedByDate[dateKey].expense += tx.amount;
+                totalExpense += tx.amount;
+            }
+            groupedByDate[dateKey].transactions.push({
+                _id: tx._id,
+                date: tx.date,
+                description: tx.description,
+                type: tx.type,
+                amount: tx.amount,
+                account: tx.account?.name || 'N/A',
+                accountType: tx.account?.type || '',
+            });
+        }
+
+        const dailySummary = Object.values(groupedByDate).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+        // If Excel export requested
+        if (responseFormat === 'excel') {
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('Income & Expense Report');
+
+            // Title
+            worksheet.mergeCells('A1:F1');
+            const titleCell = worksheet.getCell('A1');
+            titleCell.value = 'Income & Expense Report';
+            titleCell.font = { size: 14, bold: true };
+            titleCell.alignment = { horizontal: 'center' };
+
+            // Date range
+            worksheet.mergeCells('A2:F2');
+            const dateCell = worksheet.getCell('A2');
+            dateCell.value = `From: ${startDate || 'Start'} To: ${endDate || 'End'}`;
+            dateCell.font = { size: 10, color: { argb: '666666' } };
+            dateCell.alignment = { horizontal: 'center' };
+
+            worksheet.addRow([]);
+
+            // Summary row
+            worksheet.addRow([]);
+            const summaryRow = worksheet.addRow(['', 'Total Income', totalIncome, 'Total Expense', totalExpense, 'Net', totalIncome - totalExpense]);
+            summaryRow.font = { bold: true };
+            worksheet.getRow(summaryRow.number).getCell(2).font = { bold: true, color: { argb: '008000' } };
+            worksheet.getRow(summaryRow.number).getCell(3).font = { bold: true, color: { argb: '008000' } };
+            worksheet.getRow(summaryRow.number).getCell(4).font = { bold: true, color: { argb: 'FF0000' } };
+            worksheet.getRow(summaryRow.number).getCell(5).font = { bold: true, color: { argb: 'FF0000' } };
+
+            worksheet.addRow([]);
+
+            // Headers
+            const headers = ['Date', 'Description', 'Type', 'Amount', 'Account', 'Account Type'];
+            const headerRow = worksheet.addRow(headers);
+            headerRow.font = { bold: true, color: { argb: 'FFFFFF' } };
+            headerRow.eachCell((cell) => {
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '333333' } };
+                cell.alignment = { horizontal: 'center' };
+            });
+
+            // Data rows
+            for (const day of dailySummary) {
+                for (const tx of day.transactions) {
+                    worksheet.addRow([
+                        new Date(tx.date).toLocaleDateString('en-GB'),
+                        tx.description,
+                        tx.type,
+                        tx.amount,
+                        tx.account,
+                        tx.accountType
+                    ]);
+                }
+            }
+
+            // Auto-width columns
+            worksheet.columns.forEach((col) => {
+                col.width = 20;
+            });
+
+            const buffer = await workbook.xlsx.writeBuffer();
+            res.setHeader('Content-Disposition', `attachment; filename="income-expense-report-${startDate || 'all'}-to-${endDate || 'all'}.xlsx"`);
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            return res.send(buffer);
+        }
+
+        // JSON response
+        res.json({
+            status: true,
+            data: {
+                dailySummary,
+                totals: { income: totalIncome, expense: totalExpense, net: totalIncome - totalExpense },
+                transactionCount: transactions.length
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};

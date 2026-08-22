@@ -7,7 +7,8 @@ import {
     transferFunds,
     getAccountTransactions,
     getAllTransactions,
-    exportTransactions
+    exportTransactions,
+    getIncomeExpenseReport
 } from '../controllers/accountController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
@@ -17,6 +18,7 @@ router.route('/').post(protect, createAccount).get(protect, getAccounts);
 router.route('/transfer').post(protect, transferFunds);
 router.route('/transactions/all').get(protect, getAllTransactions);
 router.route('/transactions/export').get(protect, exportTransactions);
+router.route('/reports/income-expense').get(protect, getIncomeExpenseReport);
 router.route('/:id').put(protect, updateAccount).delete(protect, deleteAccount);
 router.route('/:id/transactions').get(protect, getAccountTransactions);
 
