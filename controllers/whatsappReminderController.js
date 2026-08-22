@@ -36,7 +36,11 @@ export const createAndRunDueReminder = async (req, res) => {
             createdBy: req.user?._id
         });
 
-        res.status(201).json({ success: true, data: run });
+        res.status(201).json({
+            success: true,
+            message: `Reminder started. Sending to ${recipients.length} recipient(s) in the background.`,
+            data: run,
+        });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }

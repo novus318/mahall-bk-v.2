@@ -106,7 +106,12 @@ export const sendDueBatch = async (recipients, { name, entityType = 'All', perio
     });
     await reminder.save();
 
-    return executeReminder(reminder._id);
+    // Fire-and-forget: execute in background so the API responds immediately
+    executeReminder(reminder._id).catch((err) => {
+        console.error(`[Reminder ${reminder._id}] background execution failed:`, err.message);
+    });
+
+    return reminder;
 };
 
 // Execute a reminder run. Each recipient is personalised with the due_collection
