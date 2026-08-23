@@ -817,14 +817,14 @@ const generateBulkDues = async (req, res) => {
 // @access  Private
 const getArrearsSummary = async (req, res) => {
     try {
-        const { entityType } = req.query; // 'House' or 'Member'
+        const { entityType, search, page = 1, limit = 20, sort = 'amount', order = 'desc' } = req.query;
 
         const match = { status: { $in: ['PENDING', 'PARTIAL'] } };
         if (entityType && entityType !== 'All') {
             match.entityType = entityType;
         }
 
-        const arrears = await CollectionDue.aggregate([
+        const pipeline = [
             { $match: match },
             {
                 $group: {
@@ -878,11 +878,53 @@ const getArrearsSummary = async (req, res) => {
                         ]
                     }
                 }
-            },
-            { $sort: { totalAmount: -1 } }
-        ]);
+            }
+        ];
 
-        res.json({ status: true, data: arrears });
+        // Search filter (after $project so we can search entity.name, entity.customId, house.name)
+        if (search) {
+            const q = search.toLowerCase();
+            pipeline.push({
+                $match: {
+                    $or: [
+                        { 'entity.name': { $regex: q, $options: 'i' } },
+                        { 'entity.customId': { $regex: q, $options: 'i' } },
+                        { 'entity.house.name': { $regex: q, $options: 'i' } },
+                        { 'entity.house.customId': { $regex: q, $options: 'i' } },
+                        { entityType: { $regex: q, $options: 'i' } }
+                    ]
+                }
+            });
+        }
+
+        // Sort
+        const sortField = sort === 'name' ? 'entity.name' : sort === 'pending' ? 'pendingCount' : 'totalAmount';
+        const sortOrder = order === 'asc' ? 1 : -1;
+        pipeline.push({ $sort: { [sortField]: sortOrder } });
+
+        // Get total count before pagination
+        const countPipeline = [...pipeline, { $count: 'total' }];
+        const countResult = await CollectionDue.aggregate(countPipeline);
+        const total = countResult[0]?.total || 0;
+
+        // Paginate
+        const pageNum = Math.max(1, Number(page));
+        const limitNum = Math.min(100, Math.max(1, Number(limit)));
+        const skip = (pageNum - 1) * limitNum;
+        pipeline.push({ $skip: skip }, { $limit: limitNum });
+
+        const arrears = await CollectionDue.aggregate(pipeline);
+
+        res.json({
+            status: true,
+            data: arrears,
+            pagination: {
+                page: pageNum,
+                limit: limitNum,
+                total,
+                totalPages: Math.ceil(total / limitNum)
+            }
+        });
     } catch (error) {
         res.status(500).json({ status: false, message: error.message });
     }
