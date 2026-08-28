@@ -427,6 +427,52 @@ const payRent = async (req, res) => {
 
             await rentDue.save({ session });
             await session.commitTransaction();
+
+            const payerPhone = rentDue.contract.tenant?.phone || '';
+            if (payerPhone) {
+                const WHATSAPP_URL = process.env.WHATSAPP_API_URL;
+                const TOKEN = process.env.WHATSAPP_TOKEN;
+                if (WHATSAPP_URL && TOKEN) {
+                    let phone = payerPhone.replace(/\D/g, '');
+                    if (phone.length === 10) phone = '91' + phone;
+
+                    const amountStr = `₹${paymentAmount.toLocaleString('en-IN')}`;
+
+                    const wpPayload = {
+                        messaging_product: 'whatsapp',
+                        to: phone,
+                        type: 'template',
+                        template: {
+                            name: 'rent_due_confirm',
+                            language: { code: 'ml' },
+                            components: [{
+                                type: 'body',
+                                parameters: [
+                                    { type: 'text', text: rentDue.contract.tenant?.name || 'Tenant' },
+                                    { type: 'text', text: amountStr },
+                                    { type: 'text', text: rentDue.monthYear },
+                                ]
+                            },
+                            {
+                                type: 'button',
+                                sub_type: 'url',
+                                index: '0',
+                                parameters: [
+                                    { type: 'text', text: 'api/receipts/' + receipt[0]._id.toString() + '/pdf' }
+                                ]
+                            }]
+                        }
+                    };
+
+                    axios.post(WHATSAPP_URL, wpPayload, {
+                        headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+                        timeout: 10000
+                    }).catch(error => {
+                        console.error('Failed to send rent WhatsApp:', error.response?.data || error.message);
+                    });
+                }
+            }
+
             res.json(rentDue);
         } catch (txnError) {
             await session.abortTransaction();
