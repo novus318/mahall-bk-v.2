@@ -297,17 +297,34 @@ export const createReceipt = async (req, res) => {
         res.status(201).json({ status: true, data: receipt, message: 'Receipt created successfully' });
 
         // Send WhatsApp receipt confirmation if payer contact is available
-        if (receipt.payerContact) {
-            const API_URL = process.env.WHATSAPP_API_URL;
-            const TOKEN = process.env.WHATSAPP_TOKEN;
-            if (API_URL && TOKEN) {
-                let phone = receipt.payerContact.replace(/\D/g, '');
+        // Run after response so UI is not blocked, but log everything for debugging
+        (async () => {
+            try {
+                const rawContact = (receipt.payerContact || '').toString().trim();
+                if (!rawContact) {
+                    console.log('[receipt_confirm] skipped: payerContact empty');
+                    return;
+                }
+                const API_URL = process.env.WHATSAPP_API_URL;
+                const TOKEN = process.env.WHATSAPP_TOKEN;
+                if (!API_URL || !TOKEN) {
+                    console.error('[receipt_confirm] skipped: WHATSAPP_API_URL or WHATSAPP_TOKEN not configured');
+                    return;
+                }
+                let phone = rawContact.replace(/\D/g, '');
                 if (phone.length === 10) phone = '91' + phone;
+                // Remove leading 0 if present after country code handling (e.g., 091...)
+                if (phone.length === 11 && phone.startsWith('0')) phone = phone.slice(1);
+                if (phone.length < 10 || phone.length > 15) {
+                    console.error(`[receipt_confirm] skipped: invalid phone "${rawContact}" -> "${phone}"`);
+                    return;
+                }
 
-                const amountStr = `₹${receipt.amount.toLocaleString('en-IN')}`;
+                const amountStr = `₹${Number(receipt.amount).toLocaleString('en-IN')}`;
 
                 const payload = {
                     messaging_product: 'whatsapp',
+                    recipient_type: 'individual',
                     to: phone,
                     type: 'template',
                     template: {
@@ -316,7 +333,7 @@ export const createReceipt = async (req, res) => {
                         components: [{
                             type: 'body',
                             parameters: [
-                                { type: 'text', text: receipt.payer },
+                                { type: 'text', text: receipt.payer || 'Customer' },
                                 { type: 'text', text: amountStr }
                             ]
                         },
@@ -325,20 +342,22 @@ export const createReceipt = async (req, res) => {
                             sub_type: 'url',
                             index: '0',
                             parameters: [
-                                { type: 'text', text: 'api/receipts/' + receipt._id.toString() + '/pdf' }
+                                { type: 'text', text: receipt._id.toString() }
                             ]
                         }]
                     }
                 };
 
-                axios.post(API_URL, payload, {
+                console.log(`[receipt_confirm] sending to ${phone} for receipt ${receipt.receiptNo} (${receipt._id})`);
+                const { data } = await axios.post(API_URL, payload, {
                     headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
-                    timeout: 10000
-                }).catch(error => {
-                    console.error('Failed to send receipt_confirm WhatsApp:', error.response?.data || error.message);
+                    timeout: 15000
                 });
+                console.log('[receipt_confirm] sent:', data?.messages?.[0]?.id || data);
+            } catch (error) {
+                console.error('[receipt_confirm] failed:', error.response?.data ? JSON.stringify(error.response.data) : error.message);
             }
-        }
+        })();
 
     } catch (error) {
         console.error(error);
