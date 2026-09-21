@@ -45,6 +45,10 @@ const systemSettingsSchema = mongoose.Schema({
         code: { type: String },
         expiresAt: { type: Date },
         userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+    },
+    whatsappMeta: {
+        waba: { type: String, default: '' },
+        verifiedAt: { type: Date }
     }
 }, {
     timestamps: true
