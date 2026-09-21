@@ -6,6 +6,7 @@ import AccountTransaction from '../models/AccountTransaction.js';
 import SystemSettings from '../models/SystemSettings.js';
 import axios from 'axios';
 import mongoose from 'mongoose';
+import PDFDocument from 'pdfkit';
 
 // @desc    Create new staff
 // @route   POST /api/staff
@@ -308,6 +309,85 @@ export const markPayslipPaid = async (req, res) => {
 
             await session.commitTransaction();
             res.json({ status: true, message: 'Payslip paid successfully', data: payslip });
+
+            // Send WhatsApp salary confirmation (non-blocking, after response)
+            // Template: salary_confirm (ml) — {{1}}=name, {{2}}=month, {{3}}=amount + URL button -> payslip PDF
+            (() => {
+                try {
+                    const rawContact = (staff?.phone || '').toString().trim();
+                    if (!rawContact) {
+                        console.log('[salary_confirm] skipped: staff phone empty');
+                        return;
+                    }
+                    const API_URL = process.env.WHATSAPP_API_URL;
+                    const TOKEN = process.env.WHATSAPP_TOKEN;
+                    if (!API_URL || !TOKEN) {
+                        console.error('[salary_confirm] skipped: WHATSAPP_API_URL or WHATSAPP_TOKEN not configured');
+                        return;
+                    }
+                    let phone = rawContact.replace(/\D/g, '');
+                    if (phone.length === 10) phone = '91' + phone;
+                    if (phone.length === 11 && phone.startsWith('0')) phone = phone.slice(1);
+                    if (phone.length < 10 || phone.length > 15) {
+                        console.error(`[salary_confirm] skipped: invalid phone "${rawContact}" -> "${phone}"`);
+                        return;
+                    }
+
+                    // "MM-YYYY" -> "June 2026" (fallback to raw monthYear)
+                    let monthLabel = payslip.monthYear;
+                    try {
+                        const [m, y] = String(payslip.monthYear || '').split('-');
+                        const mi = parseInt(m, 10);
+                        if (mi >= 1 && mi <= 12 && y) {
+                            const names = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+                            monthLabel = `${names[mi - 1]} ${y}`;
+                        }
+                    } catch { /* keep raw */ }
+
+                    const amountStr = Number(finalAmount).toLocaleString('en-IN');
+
+                    const payload = {
+                        messaging_product: 'whatsapp',
+                        recipient_type: 'individual',
+                        to: phone,
+                        type: 'template',
+                        template: {
+                            name: 'salary_confirm',
+                            language: { code: 'ml' },
+                            components: [
+                                {
+                                    type: 'body',
+                                    parameters: [
+                                        { type: 'text', text: staff?.name || 'Staff' }, // {{1}}
+                                        { type: 'text', text: monthLabel },              // {{2}}
+                                        { type: 'text', text: amountStr }                // {{3}}
+                                    ]
+                                },
+                                {
+                                    type: 'button',
+                                    sub_type: 'url',
+                                    index: '0',
+                                    parameters: [
+                                        { type: 'text', text: `api/staff/${staff._id.toString()}/payslips/${payslip._id.toString()}/pdf` }
+                                    ]
+                                }
+                            ]
+                        }
+                    };
+
+                    console.log(`[salary_confirm] sending to ${phone} for payslip ${payslip.monthYear} (${payslip._id})`);
+                    axios.post(API_URL, payload, {
+                        headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+                        timeout: 15000
+                    }).then(({ data }) => {
+                        console.log('[salary_confirm] sent:', data?.messages?.[0]?.id || data);
+                    }).catch((error) => {
+                        console.error('[salary_confirm] failed:', error.response?.data ? JSON.stringify(error.response.data) : error.message);
+                    });
+                } catch (error) {
+                    console.error('[salary_confirm] failed:', error.message);
+                }
+            })();
         } catch (txnError) {
             await session.abortTransaction();
             throw txnError;
@@ -421,5 +501,125 @@ export const confirmPayslipRejection = async (req, res) => {
 
     } catch (error) {
         res.status(500).json({ status: false, message: error.message });
+    }
+};
+
+// @desc    Download Payslip PDF
+// @route   GET /api/staff/:id/payslips/:payslipId/pdf
+// @access  Public (mirrors downloadPaymentPdf)
+export const downloadPayslipPdf = async (req, res) => {
+    try {
+        const payslip = await Payslip.findById(req.params.payslipId).populate('staff');
+
+        if (!payslip) return res.status(404).json({ status: false, message: 'Payslip not found' });
+
+        // Optional staff-match guard when :id is supplied
+        if (req.params.id && payslip.staff && payslip.staff._id.toString() !== req.params.id) {
+            return res.status(400).json({ status: false, message: 'Payslip does not belong to this staff' });
+        }
+
+        const staff = payslip.staff;
+
+        const doc = new PDFDocument({ size: 'A5', margin: 30 });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename=Payslip-${payslip.monthYear}-${staff?.employeeId || 'staff'}.pdf`);
+        doc.pipe(res);
+
+        const PW = doc.page.width;
+        const MG = 30;
+        const CW = PW - MG * 2;
+        let y = MG;
+
+        doc.font('Helvetica-Bold').fontSize(16).fillColor('#000')
+            .text('THAYINERI MUSLIM JAMA-AT', MG, y, { width: CW, align: 'center' });
+        y += 22;
+
+        doc.font('Helvetica').fontSize(9).fillColor('#555')
+            .text('(TMJ) | Thayineri Kara Road, Thayineri, Kerala 670307 | Ph: +91 8129059992', MG, y, { width: CW, align: 'center' });
+        y += 14;
+
+        doc.lineWidth(0.5).moveTo(MG, y).lineTo(PW - MG, y).strokeColor('#000').stroke();
+        y += 14;
+
+        doc.font('Helvetica-Bold').fontSize(15).fillColor('#000')
+            .text('SALARY PAYSLIP', MG, y, { width: CW, align: 'center' });
+        y += 16;
+
+        doc.font('Helvetica').fontSize(9).fillColor('#555')
+            .text(`${payslip.monthYear}  |  ${payslip.status}`, MG, y, { width: CW, align: 'center' });
+        y += 16;
+
+        doc.lineWidth(0.5).moveTo(MG, y).lineTo(PW - MG, y).strokeColor('#ccc').stroke();
+        y += 12;
+
+        const L = 90;
+        const LH = 14;
+        doc.fontSize(9).fillColor('#000');
+        const row = (label, value) => {
+            doc.font('Helvetica-Bold').text(label, MG, y, { width: L });
+            doc.font('Helvetica').text(String(value ?? '-'), MG + L, y, { width: CW - L });
+            y += LH;
+        };
+
+        row('Employee:', staff?.name || '-');
+        row('Employee ID:', staff?.employeeId || '-');
+        row('Department:', staff?.department || '-');
+        row('Position:', staff?.position || '-');
+        if (payslip.paymentDate) {
+            row('Paid On:', new Date(payslip.paymentDate).toLocaleDateString('en-GB', {
+                day: '2-digit', month: 'short', year: 'numeric'
+            }));
+        }
+        row('Generated:', new Date(payslip.generatedDate || payslip.createdAt).toLocaleDateString('en-GB', {
+            day: '2-digit', month: 'short', year: 'numeric'
+        }));
+
+        y += 2;
+        doc.lineWidth(0.5).moveTo(MG, y).lineTo(PW - MG, y).strokeColor('#ccc').stroke();
+        y += 12;
+
+        // Earnings / Deductions table (same visual language as downloadPaymentPdf)
+        const tColX = [MG, MG + 18, MG + CW - 90];
+        const tColW = [18, CW - 108, 90];
+
+        doc.lineWidth(0.5).rect(MG, y, CW, 18).fillAndStroke('#000', '#000');
+        doc.fillColor('#fff').font('Helvetica-Bold').fontSize(8);
+        doc.text('#', tColX[0] + 5, y + 5, { width: tColW[0], align: 'center' });
+        doc.text('Particulars', tColX[1] + 5, y + 5, { width: tColW[1] });
+        doc.text('Amount', tColX[2] + 5, y + 5, { width: tColW[2] - 10, align: 'right' });
+        y += 18;
+
+        const itemRow = (i, label, amount, opts = {}) => {
+            doc.lineWidth(0.5).rect(MG, y, CW, 20).stroke('#eee');
+            doc.fillColor(opts.color || '#000').font(opts.bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9);
+            doc.text(String(i), tColX[0] + 5, y + 5, { width: tColW[0], align: 'center' });
+            doc.text(label, tColX[1] + 5, y + 5, { width: tColW[1] });
+            doc.text('Rs. ' + Number(amount).toFixed(2), tColX[2] + 5, y + 5, { width: tColW[2] - 10, align: 'right' });
+            y += 20;
+        };
+
+        let idx = 1;
+        itemRow(idx++, 'Base Salary', payslip.baseSalary);
+        if (staff?.otherAllowance > 0) itemRow(idx++, 'Other Allowance', staff.otherAllowance);
+        if (payslip.leaveDeduction > 0) itemRow(idx++, `Leave Deduction (${payslip.leaveDays || 0} day(s))`, -payslip.leaveDeduction, { color: '#b91c1c' });
+        if (payslip.advanceDeduction > 0) itemRow(idx++, 'Advance Deduction', -payslip.advanceDeduction, { color: '#b91c1c' });
+
+        doc.lineWidth(0.5).rect(MG, y, CW, 22).fillAndStroke('#f5f5f5', '#000');
+        doc.fillColor('#000').font('Helvetica-Bold').fontSize(10);
+        doc.text('NET PAY', tColX[1] + 5, y + 5, { width: tColW[1] });
+        doc.text('Rs. ' + Number(payslip.finalAmount).toFixed(2), tColX[2] + 5, y + 5, { width: tColW[2] - 10, align: 'right' });
+        y += 30;
+
+        doc.font('Helvetica').fontSize(8).fillColor('#888')
+            .text('Generated: ' + new Date().toLocaleString('en-IN', {
+                timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric',
+                hour: '2-digit', minute: '2-digit', hour12: true
+            }), MG, y, { width: CW, align: 'center' });
+
+        doc.end();
+
+    } catch (error) {
+        console.error(error);
+        if (!res.headersSent) res.status(500).json({ status: false, message: error.message });
     }
 };

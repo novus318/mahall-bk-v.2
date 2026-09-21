@@ -1,7 +1,7 @@
 import express from 'express';
 import {
     getPaymentCategories, createPaymentCategory, updatePaymentCategory, deletePaymentCategory,
-    getPayments, createPayment, updatePayment, getPaymentById,
+    getPayments, createPayment, updatePayment, getPaymentById, exportPayments,
     markPaymentAsPaid, deletePayment, downloadPaymentPdf
 } from '../controllers/paymentController.js';
 import { protect, authorize } from '../middleware/authMiddleware.js';
@@ -22,6 +22,7 @@ router.delete('/categories/:id', authorize('admin'), deletePaymentCategory);
 
 // Payments
 router.get('/', getPayments);
+router.post('/export', exportPayments);
 router.get('/:id', getPaymentById);
 router.post('/', createPayment);
 router.put('/:id', updatePayment);
