@@ -427,6 +427,52 @@ const payRent = async (req, res) => {
 
             await rentDue.save({ session });
             await session.commitTransaction();
+
+            const payerPhone = rentDue.contract.tenant?.phone || '';
+            if (payerPhone) {
+                const WHATSAPP_URL = process.env.WHATSAPP_API_URL;
+                const TOKEN = process.env.WHATSAPP_TOKEN;
+                if (WHATSAPP_URL && TOKEN) {
+                    let phone = payerPhone.replace(/\D/g, '');
+                    if (phone.length === 10) phone = '91' + phone;
+
+                    const amountStr = `₹${paymentAmount.toLocaleString('en-IN')}`;
+
+                    const wpPayload = {
+                        messaging_product: 'whatsapp',
+                        to: phone,
+                        type: 'template',
+                        template: {
+                            name: 'rent_due_confirm',
+                            language: { code: 'ml' },
+                            components: [{
+                                type: 'body',
+                                parameters: [
+                                    { type: 'text', text: rentDue.contract.tenant?.name || 'Tenant' },
+                                    { type: 'text', text: amountStr },
+                                    { type: 'text', text: rentDue.monthYear },
+                                ]
+                            },
+                            {
+                                type: 'button',
+                                sub_type: 'url',
+                                index: '0',
+                                parameters: [
+                                    { type: 'text', text: 'api/receipts/' + receipt[0]._id.toString() + '/pdf' }
+                                ]
+                            }]
+                        }
+                    };
+
+                    axios.post(WHATSAPP_URL, wpPayload, {
+                        headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+                        timeout: 10000
+                    }).catch(error => {
+                        console.error('Failed to send rent WhatsApp:', error.response?.data || error.message);
+                    });
+                }
+            }
+
             res.json(rentDue);
         } catch (txnError) {
             await session.abortTransaction();
@@ -567,17 +613,56 @@ const generateBulkRent = async (req, res) => {
 
 const getRentDues = async (req, res) => {
     try {
-        const { contractId, status, period } = req.query;
+        const { contractId, status, period, startDate, endDate, page = 1, limit = 20, search } = req.query;
         const query = {};
         if (contractId) query.contract = contractId;
         if (status) query.status = status;
         if (period) query.monthYear = period;
 
-        const dues = await RentDue.find(query)
-            .populate('contract', 'tenant.name tenant.phone rentAmount rooms')
-            .sort({ monthYear: -1 });
+        // Date range filter on createdAt
+        if (startDate || endDate) {
+            query.createdAt = {};
+            if (startDate) query.createdAt.$gte = new Date(startDate);
+            if (endDate) {
+                const end = new Date(endDate);
+                end.setHours(23, 59, 59, 999);
+                query.createdAt.$lte = end;
+            }
+        }
 
-        res.json({ status: true, data: dues });
+        const pageNum = Math.max(1, Number(page));
+        const limitNum = Math.min(100, Math.max(1, Number(limit)));
+        const skip = (pageNum - 1) * limitNum;
+
+        const [dues, total] = await Promise.all([
+            RentDue.find(query)
+                .populate('contract', 'tenant.name tenant.phone rentAmount rooms')
+                .sort({ monthYear: -1 })
+                .skip(skip)
+                .limit(limitNum),
+            RentDue.countDocuments(query)
+        ]);
+
+        // Post-filter for search (after populate)
+        let filteredDues = dues;
+        if (search) {
+            const q = search.toLowerCase();
+            filteredDues = dues.filter(d =>
+                d.contract?.tenant?.name?.toLowerCase().includes(q) ||
+                d.contract?.tenant?.phone?.toLowerCase().includes(q)
+            );
+        }
+
+        res.json({
+            status: true,
+            data: filteredDues,
+            pagination: {
+                page: pageNum,
+                limit: limitNum,
+                total,
+                totalPages: Math.ceil(total / limitNum)
+            }
+        });
     } catch (error) {
         res.status(500).json({ status: false, message: error.message });
     }
