@@ -36,6 +36,8 @@ import accountRoutes from './routes/accountRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
 import receiptRoutes from './routes/receiptRoutes.js';
 import whatsappRoutes from './routes/whatsappRoutes.js';
+import whatsappBulkRoutes from './routes/whatsappBulkRoutes.js';
+import whatsappReminderRoutes from './routes/whatsappReminderRoutes.js';
 import collectionRoutes from './routes/collectionRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import paymentGatewayRoutes from './routes/paymentGatewayRoutes.js';
@@ -47,18 +49,20 @@ import printRoutes from './routes/printRoutes.js';
 app.use('/api/auth', authRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/whatsapp', whatsappBulkRoutes);
+app.use('/api/reminders', whatsappReminderRoutes);
 app.use('/api/payment-gateway', paymentGatewayRoutes);
 app.use('/api/print', printRoutes);
 app.use('/api/collections', collectionRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/receipts', receiptRoutes);
+app.use('/api/staff', staffRoutes);
 app.use('/api/death-registers', deathRegisterRoutes);
 app.use('/api/nikah-registers', nikahRegisterRoutes);
 app.use('/api', mahallRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/inventory', inventoryRoutes);
-app.use('/api/staff', staffRoutes);
 app.use('/api/accounts', accountRoutes);
 app.use('/api/buildings', buildingRoutes);
 app.use('/api/contracts', contractRoutes);
@@ -68,9 +72,11 @@ app.use('/api/payables', payableRoutes);
 const PORT = process.env.PORT || 5000;
 
 import startScheduler from './jobs/collectionScheduler.js';
+import startBackupScheduler from './jobs/dbBackupScheduler.js';
 
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     startScheduler();
+    startBackupScheduler();
     // Restart trigger for date fix and deep linking
 });

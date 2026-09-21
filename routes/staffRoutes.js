@@ -8,11 +8,15 @@ import {
     generatePayslip,
     markPayslipPaid,
     initiatePayslipRejection,
-    confirmPayslipRejection
+    confirmPayslipRejection,
+    downloadPayslipPdf
 } from '../controllers/staffController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
+
+// Public PDF (mirrors GET /api/payments/:id/pdf -> downloadPaymentPdf)
+router.get('/:id/payslips/:payslipId/pdf', downloadPayslipPdf);
 
 router.route('/')
     .post(protect, createStaff)

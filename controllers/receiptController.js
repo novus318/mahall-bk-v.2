@@ -72,7 +72,7 @@ export const deleteReceiptCategory = async (req, res) => {
 
 export const getReceipts = async (req, res) => {
     try {
-        const { page = 1, limit = 20, search } = req.query;
+        const { page = 1, limit = 20, search, category, from, to } = req.query;
         const query = {};
 
         if (search) {
@@ -80,6 +80,22 @@ export const getReceipts = async (req, res) => {
                 { receiptNo: { $regex: search, $options: 'i' } },
                 { payer: { $regex: search, $options: 'i' } }
             ];
+        }
+
+        // Category-wise filter from backend
+        if (category && mongoose.isValidObjectId(category)) {
+            query.category = category;
+        }
+
+        // Date-wise filter from backend (inclusive of the "to" day)
+        if (from || to) {
+            query.date = {};
+            if (from) query.date.$gte = new Date(from);
+            if (to) {
+                const end = new Date(to);
+                end.setDate(end.getDate() + 1);
+                query.date.$lt = end;
+            }
         }
 
         const count = await Receipt.countDocuments(query);
@@ -103,6 +119,70 @@ export const getReceipts = async (req, res) => {
         res.status(500).json({ status: false, message: error.message });
     }
 }
+
+// @desc    Export filtered receipts as Excel (.xlsx)
+// @route   POST /api/receipts/export
+export const exportReceipts = async (req, res) => {
+    try {
+        const { search, category, from, to } = req.body || {};
+        const query = {};
+
+        if (search) {
+            query.$or = [
+                { receiptNo: { $regex: search, $options: 'i' } },
+                { payer: { $regex: search, $options: 'i' } }
+            ];
+        }
+        if (category && mongoose.isValidObjectId(category)) {
+            query.category = category;
+        }
+        if (from || to) {
+            query.date = {};
+            if (from) query.date.$gte = new Date(from);
+            if (to) {
+                const end = new Date(to);
+                end.setDate(end.getDate() + 1);
+                query.date.$lt = end;
+            }
+        }
+
+        const receipts = await Receipt.find(query)
+            .populate('category', 'name')
+            .populate('account', 'name')
+            .sort({ date: -1, createdAt: -1 });
+
+        const ExcelJS = (await import('exceljs')).default;
+        const workbook = new ExcelJS.Workbook();
+        const sheet = workbook.addWorksheet('Receipts');
+        sheet.columns = [
+            { header: 'Receipt No', key: 'receiptNo', width: 14 },
+            { header: 'Date', key: 'date', width: 14 },
+            { header: 'Received From', key: 'payer', width: 26 },
+            { header: 'Contact', key: 'payerContact', width: 16 },
+            { header: 'Category', key: 'category', width: 18 },
+            { header: 'Account', key: 'account', width: 18 },
+            { header: 'Amount', key: 'amount', width: 14 }
+        ];
+        receipts.forEach(r => sheet.addRow({
+            receiptNo: r.receiptNo,
+            date: new Date(r.date).toLocaleDateString('en-GB'),
+            payer: r.payer,
+            payerContact: r.payerContact || '',
+            category: r.category?.name || '',
+            account: r.account?.name || '',
+            amount: r.amount
+        }));
+        sheet.getRow(1).font = { bold: true };
+
+        const safe = `receipts-${from || 'all'}-${to || 'all'}`.replace(/[^A-Za-z0-9 _-]/g, '') || 'receipts';
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${safe}.xlsx"`);
+        await workbook.xlsx.write(res);
+        res.end();
+    } catch (error) {
+        res.status(500).json({ status: false, message: error.message });
+    }
+};
 
 
 export const getReceiptById = async (req, res) => {
@@ -217,17 +297,34 @@ export const createReceipt = async (req, res) => {
         res.status(201).json({ status: true, data: receipt, message: 'Receipt created successfully' });
 
         // Send WhatsApp receipt confirmation if payer contact is available
-        if (receipt.payerContact) {
-            const API_URL = process.env.WHATSAPP_API_URL;
-            const TOKEN = process.env.WHATSAPP_TOKEN;
-            if (API_URL && TOKEN) {
-                let phone = receipt.payerContact.replace(/\D/g, '');
+        // Run after response so UI is not blocked, but log everything for debugging
+        (async () => {
+            try {
+                const rawContact = (receipt.payerContact || '').toString().trim();
+                if (!rawContact) {
+                    console.log('[receipt_confirm] skipped: payerContact empty');
+                    return;
+                }
+                const API_URL = process.env.WHATSAPP_API_URL;
+                const TOKEN = process.env.WHATSAPP_TOKEN;
+                if (!API_URL || !TOKEN) {
+                    console.error('[receipt_confirm] skipped: WHATSAPP_API_URL or WHATSAPP_TOKEN not configured');
+                    return;
+                }
+                let phone = rawContact.replace(/\D/g, '');
                 if (phone.length === 10) phone = '91' + phone;
+                // Remove leading 0 if present after country code handling (e.g., 091...)
+                if (phone.length === 11 && phone.startsWith('0')) phone = phone.slice(1);
+                if (phone.length < 10 || phone.length > 15) {
+                    console.error(`[receipt_confirm] skipped: invalid phone "${rawContact}" -> "${phone}"`);
+                    return;
+                }
 
-                const amountStr = `₹${receipt.amount.toLocaleString('en-IN')}`;
+                const amountStr = `₹${Number(receipt.amount).toLocaleString('en-IN')}`;
 
                 const payload = {
                     messaging_product: 'whatsapp',
+                    recipient_type: 'individual',
                     to: phone,
                     type: 'template',
                     template: {
@@ -236,7 +333,7 @@ export const createReceipt = async (req, res) => {
                         components: [{
                             type: 'body',
                             parameters: [
-                                { type: 'text', text: receipt.payer },
+                                { type: 'text', text: receipt.payer || 'Customer' },
                                 { type: 'text', text: amountStr }
                             ]
                         },
@@ -245,20 +342,22 @@ export const createReceipt = async (req, res) => {
                             sub_type: 'url',
                             index: '0',
                             parameters: [
-                                { type: 'text', text: 'api/receipts/' + receipt._id.toString() + '/pdf' }
+                                { type: 'text', text: receipt._id.toString() }
                             ]
                         }]
                     }
                 };
 
-                axios.post(API_URL, payload, {
+                console.log(`[receipt_confirm] sending to ${phone} for receipt ${receipt.receiptNo} (${receipt._id})`);
+                const { data } = await axios.post(API_URL, payload, {
                     headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
-                    timeout: 10000
-                }).catch(error => {
-                    console.error('Failed to send receipt_confirm WhatsApp:', error.response?.data || error.message);
+                    timeout: 15000
                 });
+                console.log('[receipt_confirm] sent:', data?.messages?.[0]?.id || data);
+            } catch (error) {
+                console.error('[receipt_confirm] failed:', error.response?.data ? JSON.stringify(error.response.data) : error.message);
             }
-        }
+        })();
 
     } catch (error) {
         console.error(error);

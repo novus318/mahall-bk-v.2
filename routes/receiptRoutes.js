@@ -6,6 +6,7 @@ import {
     deleteReceiptCategory,
     createReceipt,
     getReceipts,
+    exportReceipts,
     updateReceipt,
     getReceiptById,
     updateReceiptCategory,
@@ -28,6 +29,7 @@ router.delete('/categories/:id', deleteReceiptCategory);
 
 // Receipts
 router.get('/', getReceipts);
+router.post('/export', exportReceipts);
 router.get('/:id', getReceiptById);
 router.post('/', createReceipt);
 router.put('/:id', updateReceipt);
